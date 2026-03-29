@@ -360,10 +360,86 @@
         /* 일부 환경에서 과도한 초기 return으로 배경 초기화가 건너뛰는 문제 방지 */
         if (!canvas || !sCanvas) return;
 
-        /** 성능 최우선: 오로라/별 버퍼 스케일을 낮춰 픽셀 필레이트를 줄임 */
-        var AURORA_BUFFER_SCALE = 0.46;
-        var STAR_BUFFER_SCALE = 0.7;
-        var STAR_FRAME_INTERVAL_MS = 33;
+        function getQualityPreset(tier, reducedMotionFlag) {
+          var safeTier = reducedMotionFlag ? "low" : tier;
+          if (safeTier === "high") {
+            return {
+              tier: "high",
+              reducedMotion: reducedMotionFlag,
+              auroraScale: 0.62,
+              starScale: 0.95,
+              starFrameIntervalMs: 16,
+              starDensityDivisor: 7600,
+              starCapMin: 90,
+              starCapMax: 360,
+              brightCapMax: 12,
+              brightCapMin: 5,
+              brightCapDivisor: 52,
+              spriteSize: 108,
+              flareSpriteSize: 150,
+            };
+          }
+          if (safeTier === "low") {
+            return {
+              tier: "low",
+              reducedMotion: reducedMotionFlag,
+              auroraScale: 0.38,
+              starScale: 0.55,
+              starFrameIntervalMs: 50,
+              starDensityDivisor: 16000,
+              starCapMin: 48,
+              starCapMax: 140,
+              brightCapMax: 5,
+              brightCapMin: 3,
+              brightCapDivisor: 70,
+              spriteSize: 64,
+              flareSpriteSize: 92,
+            };
+          }
+          return {
+            tier: "medium",
+            reducedMotion: reducedMotionFlag,
+            auroraScale: 0.46,
+            starScale: 0.7,
+            starFrameIntervalMs: 33,
+            starDensityDivisor: 11000,
+            starCapMin: 64,
+            starCapMax: 220,
+            brightCapMax: 8,
+            brightCapMin: 4,
+            brightCapDivisor: 56,
+            spriteSize: 88,
+            flareSpriteSize: 124,
+          };
+        }
+
+        function detectQualityProfile() {
+          var reducedMotionFlag = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          var hc = navigator.hardwareConcurrency || 4;
+          var dm = navigator.deviceMemory || 4;
+          var dprGuess = window.devicePixelRatio || 1;
+          var score = 0;
+          if (hc >= 12) score += 3;
+          else if (hc >= 8) score += 2;
+          else if (hc >= 4) score += 1;
+          if (dm >= 8) score += 2;
+          else if (dm >= 4) score += 1;
+          if (dprGuess <= 1.5) score += 1;
+          var tier = score >= 5 ? "high" : score <= 1 ? "low" : "medium";
+          return getQualityPreset(tier, reducedMotionFlag);
+        }
+
+        var qualityProfile = detectQualityProfile();
+        var adaptiveBaseTier = qualityProfile.tier;
+        var AURORA_BUFFER_SCALE = qualityProfile.auroraScale;
+        var STAR_BUFFER_SCALE = qualityProfile.starScale;
+        var STAR_FRAME_INTERVAL_MS = qualityProfile.starFrameIntervalMs;
+        var STAR_DENSITY_DIVISOR = qualityProfile.starDensityDivisor;
+        var STAR_CAP_MIN = qualityProfile.starCapMin;
+        var STAR_CAP_MAX = qualityProfile.starCapMax;
+        var BRIGHT_CAP_MIN = qualityProfile.brightCapMin;
+        var BRIGHT_CAP_MAX = qualityProfile.brightCapMax;
+        var BRIGHT_CAP_DIVISOR = qualityProfile.brightCapDivisor;
         var gl = null;
         var prog = null;
         var uLoc = {};
@@ -606,7 +682,7 @@
         var dpr = 1;
         var W = 0;
         var H = 0;
-        var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var reducedMotion = qualityProfile.reducedMotion;
         var rafId = 0;
         var resizeRaf = 0;
         var frozen = false;
@@ -615,6 +691,32 @@
         var brightSprite = null;
         var brightFlareSprite = null;
         var lastStarsDrawAt = -1;
+
+        function applyQualityProfile(nextProfile) {
+          qualityProfile = nextProfile;
+          reducedMotion = nextProfile.reducedMotion;
+          AURORA_BUFFER_SCALE = nextProfile.auroraScale;
+          STAR_BUFFER_SCALE = nextProfile.starScale;
+          STAR_FRAME_INTERVAL_MS = nextProfile.starFrameIntervalMs;
+          STAR_DENSITY_DIVISOR = nextProfile.starDensityDivisor;
+          STAR_CAP_MIN = nextProfile.starCapMin;
+          STAR_CAP_MAX = nextProfile.starCapMax;
+          BRIGHT_CAP_MIN = nextProfile.brightCapMin;
+          BRIGHT_CAP_MAX = nextProfile.brightCapMax;
+          BRIGHT_CAP_DIVISOR = nextProfile.brightCapDivisor;
+        }
+
+        function refineQualityFromGLCaps() {
+          if (!webglReady || !gl) return false;
+          var maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
+          var nextTier = adaptiveBaseTier;
+          if (maxTexture > 0 && maxTexture <= 4096) nextTier = "low";
+          else if (maxTexture >= 16384 && adaptiveBaseTier === "medium" && !qualityProfile.reducedMotion) nextTier = "high";
+          if (nextTier === adaptiveBaseTier) return false;
+          adaptiveBaseTier = nextTier;
+          applyQualityProfile(getQualityPreset(nextTier, qualityProfile.reducedMotion));
+          return true;
+        }
 
         function mulberry32(a) {
           return function () {
@@ -643,15 +745,15 @@
         }
 
         function initStarSprites() {
-          brightSprite = makeStarSprite(88, 0.92, 0.34);
-          brightFlareSprite = makeStarSprite(124, 0.55, 0.24);
+          brightSprite = makeStarSprite(qualityProfile.spriteSize, 0.92, 0.34);
+          brightFlareSprite = makeStarSprite(qualityProfile.flareSpriteSize, 0.55, 0.24);
         }
 
         function initStars() {
           var rnd = mulberry32(0x9e3779b9 ^ (W | 0) ^ (H << 16));
           stars = [];
           brightStars = [];
-          var cap = Math.min(220, Math.max(64, Math.floor((W * H) / 11000)));
+          var cap = Math.min(STAR_CAP_MAX, Math.max(STAR_CAP_MIN, Math.floor((W * H) / STAR_DENSITY_DIVISOR)));
           var k = 0;
           for (; k < cap; k++) {
             stars.push({
@@ -665,7 +767,7 @@
               slow: 0.3 + rnd() * 0.7,
             });
           }
-          var brightCap = Math.min(8, Math.max(4, Math.floor(cap / 56)));
+          var brightCap = Math.min(BRIGHT_CAP_MAX, Math.max(BRIGHT_CAP_MIN, Math.floor(cap / BRIGHT_CAP_DIVISOR)));
           for (k = 0; k < brightCap; k++) {
             brightStars.push({
               x: rnd() * W,
@@ -792,7 +894,14 @@
 
         resize();
         webglReady = initWebGL();
-        if (!webglReady) fallbackCtx = canvas.getContext("2d", { alpha: false });
+        if (!webglReady) {
+          fallbackCtx = canvas.getContext("2d", { alpha: false });
+          adaptiveBaseTier = "low";
+          applyQualityProfile(getQualityPreset("low", reducedMotion));
+          resize();
+        } else if (refineQualityFromGLCaps()) {
+          resize();
+        }
 
         frame(0);
         lastStarsDrawAt = 0;
@@ -813,6 +922,28 @@
         }
 
         window.addEventListener("resize", scheduleResize, { passive: true });
+
+        var reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+        function onReducedMotionChange(e) {
+          applyQualityProfile(getQualityPreset(adaptiveBaseTier, !!e.matches));
+          frozen = !!e.matches;
+          resize();
+          var now = performance.now();
+          frame(now);
+          if (frozen) {
+            if (rafId) {
+              cancelAnimationFrame(rafId);
+              rafId = 0;
+            }
+          } else if (!rafId) {
+            rafId = requestAnimationFrame(tick);
+          }
+        }
+        if (reducedMotionQuery.addEventListener) {
+          reducedMotionQuery.addEventListener("change", onReducedMotionChange);
+        } else if (reducedMotionQuery.addListener) {
+          reducedMotionQuery.addListener(onReducedMotionChange);
+        }
 
       })();
     </script>
