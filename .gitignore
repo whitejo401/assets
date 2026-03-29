@@ -1,1 +1,6 @@
 .cursor/
+node_modules/
+.next/
+dist/
+*.tgz
+npm-debug.log*
