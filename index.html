@@ -324,14 +324,14 @@
           <a class="btn" href="#">시작하기</a>
           <a class="btn btn--ghost" href="#">더 알아보기</a>
         </div>
-        <p class="scroll-hint" aria-hidden="true">아래로 스크롤 · 배경은 고정, 콘텐츠만 이동합니다</p>
+        <p class="scroll-hint" aria-hidden="true">아래로 스크롤 · 오로라와 별이 스크롤에 맞춰 함께 이동합니다</p>
       </div>
 
       <section class="scroll-probe" aria-labelledby="probe-title">
         <h2 id="probe-title">스크롤·부하 확인</h2>
         <p>
-          오로라·별·그레인 레이어는 모두 <code style="opacity: 0.85">position: fixed</code> 이라 뷰포트에 붙어 있고,
-          스크롤해도 다시 그리는 영역 크기는 변하지 않습니다. 개발자 도구 Performance에서 스크롤 구간을 녹화하면
+          오로라·별 레이어는 뷰포트에 렌더링되지만 스크롤 값에 반응해 함께 흐르도록 구성되어 있습니다.
+          개발자 도구 Performance에서 스크롤 구간을 녹화하면
           메인 스레드·GPU 부하를 비교하기 좋습니다.
         </p>
         <div class="card">
@@ -350,6 +350,32 @@
         </p>
       </section>
 
+      <section class="scroll-probe" aria-labelledby="long-scroll-title">
+        <h2 id="long-scroll-title">긴 스크롤 테스트 구간</h2>
+        <p>
+          아래 블록은 스크롤 길이를 충분히 확보하기 위한 테스트 콘텐츠입니다. 페이지 하단으로 갈수록 오로라 레이어가 실제로
+          위로 밀려나듯 화면 밖으로 사라지는지 확인해 보세요.
+        </p>
+        <div class="card"><strong>테스트 포인트 01:</strong> 스크롤 초반 — 오로라가 선명하게 유지되는지 확인</div>
+        <p>스크롤이 시작될 때는 기존과 유사한 밝기와 채도로 오로라가 보여야 합니다.</p>
+        <div class="card"><strong>테스트 포인트 02:</strong> 스크롤 중반 — 오로라가 위로 올라가는지 확인</div>
+        <p>중간 지점에서는 오로라/별 레이어가 실제로 위쪽으로 이동하며 뷰포트에서 차지하는 영역이 줄어들어야 합니다.</p>
+        <div class="card"><strong>테스트 포인트 03:</strong> 스크롤 후반 — 렌더 면적이 작아지는지 확인</div>
+        <p>하단에 가까울수록 레이어의 실가시 영역이 줄어들고, 화면 밖 구간은 그리지 않아 성능 이득이 발생합니다.</p>
+        <div class="card"><strong>테스트 포인트 04:</strong> 최하단 — 오로라가 완전히 사라지는지 확인</div>
+        <p>맨 아래에서는 오로라 레이어가 0에 가까워져 사실상 보이지 않아야 합니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+        <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
+      </section>
+
       <footer class="site-footer">LookGood · WebGL2 프로시저럴 오로라 + 2D 별 (오프라인 동작)</footer>
     </main>
 
@@ -357,8 +383,12 @@
       (function () {
         var canvas = document.getElementById("aurora-canvas");
         var sCanvas = document.getElementById("stars-canvas");
+        var auroraStageEl = document.querySelector(".aurora-stage");
+        var scrimEl = document.querySelector(".video-scrim");
+        var grainEl = document.querySelector(".grain");
+        var vignetteEl = document.querySelector(".vignette");
         /* 일부 환경에서 과도한 초기 return으로 배경 초기화가 건너뛰는 문제 방지 */
-        if (!canvas || !sCanvas) return;
+        if (!canvas || !sCanvas || !auroraStageEl || !scrimEl || !grainEl || !vignetteEl) return;
 
         function getQualityPreset(tier, reducedMotionFlag) {
           var safeTier = reducedMotionFlag ? "low" : tier;
@@ -691,6 +721,11 @@
         var brightSprite = null;
         var brightFlareSprite = null;
         var lastStarsDrawAt = -1;
+        var scrollYPos = 0;
+        var layerOffsetY = 0;
+        var auroraVisibleRatio = 1;
+        var auroraHidden = false;
+        var layersCleared = false;
 
         function applyQualityProfile(nextProfile) {
           qualityProfile = nextProfile;
@@ -716,6 +751,39 @@
           adaptiveBaseTier = nextTier;
           applyQualityProfile(getQualityPreset(nextTier, qualityProfile.reducedMotion));
           return true;
+        }
+
+        function updateScrollNorm() {
+          var maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+          var y = window.scrollY || window.pageYOffset || 0;
+          scrollYPos = Math.max(0, Math.min(y, maxScroll));
+          layerOffsetY = -scrollYPos;
+          auroraVisibleRatio = Math.max(0, Math.min(1, 1 - scrollYPos / Math.max(1, H)));
+          auroraHidden = auroraVisibleRatio <= 0.02;
+        }
+
+        function applyLayerTransforms() {
+          var tr = "translate3d(0," + layerOffsetY.toFixed(2) + "px,0)";
+          auroraStageEl.style.transform = tr;
+          sCanvas.style.transform = tr;
+          scrimEl.style.transform = tr;
+          grainEl.style.transform = tr;
+          vignetteEl.style.transform = tr;
+        }
+
+        function clearRenderLayers() {
+          if (webglReady && gl) {
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.clearColor(0.02, 0.02, 0.04, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+          } else if (fallbackCtx) {
+            var s = dpr * AURORA_BUFFER_SCALE;
+            fallbackCtx.setTransform(s, 0, 0, s, 0, 0);
+            fallbackCtx.clearRect(0, 0, W, H);
+          }
+          var starPx = dpr * STAR_BUFFER_SCALE;
+          sctx.setTransform(starPx, 0, 0, starPx, 0, 0);
+          sctx.clearRect(0, 0, W, H);
         }
 
         function mulberry32(a) {
@@ -808,6 +876,8 @@
               gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
             }
           }
+          updateScrollNorm();
+          applyLayerTransforms();
         }
 
         function drawAurora(t) {
@@ -878,18 +948,28 @@
         }
 
         function frame(t) {
-          if (!frozen) {
-            drawAurora(t);
-            if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= STAR_FRAME_INTERVAL_MS) {
-              drawStars(t);
-              lastStarsDrawAt = t;
+          if (frozen) return;
+          if (auroraHidden) {
+            if (!layersCleared) {
+              clearRenderLayers();
+              layersCleared = true;
             }
+            return;
+          }
+          layersCleared = false;
+          drawAurora(t);
+          var intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
+          var starInterval = STAR_FRAME_INTERVAL_MS * intervalScale;
+          if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= starInterval) {
+            drawStars(t);
+            lastStarsDrawAt = t;
           }
         }
 
         function tick(t) {
           frame(t);
-          if (!reducedMotion) rafId = requestAnimationFrame(tick);
+          if (!reducedMotion && !auroraHidden) rafId = requestAnimationFrame(tick);
+          else rafId = 0;
         }
 
         resize();
@@ -922,6 +1002,24 @@
         }
 
         window.addEventListener("resize", scheduleResize, { passive: true });
+        window.addEventListener(
+          "scroll",
+          function () {
+            updateScrollNorm();
+            applyLayerTransforms();
+            if (reducedMotion) {
+              frame(performance.now());
+            } else if (auroraHidden) {
+              if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = 0;
+              }
+            } else if (!rafId) {
+              rafId = requestAnimationFrame(tick);
+            }
+          },
+          { passive: true }
+        );
 
         var reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
         function onReducedMotionChange(e) {
@@ -935,7 +1033,7 @@
               cancelAnimationFrame(rafId);
               rafId = 0;
             }
-          } else if (!rafId) {
+          } else if (!auroraHidden && !rafId) {
             rafId = requestAnimationFrame(tick);
           }
         }
