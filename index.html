@@ -298,77 +298,6 @@
         text-shadow: 0 1px 10px oklch(4% 0.06 270 / 0.95);
       }
 
-      .aurora-mode-panel {
-        position: fixed;
-        right: clamp(0.75rem, 3vw, 1.25rem);
-        bottom: clamp(0.75rem, 3vw, 1.25rem);
-        z-index: 20;
-        pointer-events: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-        padding: 0.65rem 0.75rem;
-        border-radius: 12px;
-        background: oklch(12% 0.05 270 / 0.72);
-        border: 1px solid oklch(65% 0.08 280 / 0.35);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        box-shadow: 0 8px 32px oklch(4% 0.06 270 / 0.5);
-        max-width: min(18rem, calc(100vw - 1.5rem));
-      }
-
-      .aurora-mode-panel .aurora-mode-panel__label {
-        font-size: 0.6875rem;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: oklch(62% 0.04 260);
-      }
-
-      .aurora-mode-panel .seg {
-        display: flex;
-        gap: 0.35rem;
-        flex-wrap: wrap;
-      }
-
-      .aurora-mode-panel button {
-        flex: 1;
-        min-width: 0;
-        min-height: 40px;
-        padding: 0.4rem 0.6rem;
-        font-family: inherit;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: oklch(88% 0.03 260);
-        background: oklch(20% 0.05 270 / 0.6);
-        border: 1px solid oklch(55% 0.08 280 / 0.4);
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-      }
-
-      .aurora-mode-panel button:hover {
-        background: oklch(26% 0.06 280 / 0.75);
-        border-color: oklch(65% 0.1 280 / 0.5);
-      }
-
-      .aurora-mode-panel button[aria-pressed="true"] {
-        color: oklch(12% 0.05 270);
-        background: linear-gradient(135deg, oklch(72% 0.14 175), oklch(65% 0.16 260));
-        border-color: oklch(78% 0.1 200 / 0.45);
-      }
-
-      .aurora-mode-panel button:focus-visible {
-        outline: 2px solid oklch(78% 0.14 175);
-        outline-offset: 2px;
-      }
-
-      .aurora-mode-panel .hint {
-        margin: 0;
-        font-size: 0.6875rem;
-        line-height: 1.45;
-        color: oklch(58% 0.04 260);
-      }
     </style>
   </head>
   <body>
@@ -384,21 +313,12 @@
     <div class="grain" aria-hidden="true"></div>
     <div class="vignette" aria-hidden="true"></div>
 
-    <div class="aurora-mode-panel" role="group" aria-labelledby="aurora-mode-label">
-      <span id="aurora-mode-label" class="aurora-mode-panel__label">표현 모드</span>
-      <div class="seg" role="presentation">
-        <button type="button" id="btn-aurora-fluid" aria-pressed="false">유체·확산</button>
-        <button type="button" id="btn-aurora-corona" aria-pressed="true">코로나·커튼</button>
-      </div>
-      <p class="hint">선택은 이 브라우저에 저장됩니다. 비교 후 마음에 드는 쪽을 고르세요.</p>
-    </div>
-
     <main>
       <div class="hero">
         <span class="badge">Cosmos · Aurora</span>
         <h1>밤하늘 아래,<br />빛의 물결</h1>
         <p class="lead">
-          초록·청록·보라 빛이 밤하늘에 퍼집니다. 우측 하단에서 유체 확산과 코로나·커튼 표현을 바꿔 비교해 보세요.
+          초록·청록·보라 빛이 밤하늘에 퍼집니다. 부드럽게 변화하는 코로나 커튼 오로라를 감상해 보세요.
         </p>
         <div class="actions">
           <a class="btn" href="#">시작하기</a>
@@ -437,24 +357,19 @@
       (function () {
         var canvas = document.getElementById("aurora-canvas");
         var sCanvas = document.getElementById("stars-canvas");
-        /* getContext 존재 여부로 return 하면 일부 환경에서 이후 버튼 바인딩까지 스킵됨 */
+        /* 일부 환경에서 과도한 초기 return으로 배경 초기화가 건너뛰는 문제 방지 */
         if (!canvas || !sCanvas) return;
 
-        /** GPU 풀스크린 패스 1회 — Canvas2D 수백 그라데이션 대비 필레이트 비용 최소 */
-        var AURORA_BUFFER_SCALE = 0.55;
+        /** 성능 최우선: 오로라/별 버퍼 스케일을 낮춰 픽셀 필레이트를 줄임 */
+        var AURORA_BUFFER_SCALE = 0.46;
+        var STAR_BUFFER_SCALE = 0.7;
+        var STAR_FRAME_INTERVAL_MS = 33;
         var gl = null;
         var prog = null;
         var uLoc = {};
         var buf = null;
         var webglReady = false;
         var fallbackCtx = null;
-        var STORAGE_MODE = "lookgood-aurora-mode";
-        var auroraMode = 1.0;
-        try {
-          var sm = localStorage.getItem(STORAGE_MODE);
-          if (sm === "0") auroraMode = 0.0;
-          else if (sm === "1") auroraMode = 1.0;
-        } catch (e) {}
 
         var VS_SRC =
           "#version 300 es\n" +
@@ -470,7 +385,6 @@
           "precision highp float;\n" +
           "uniform float u_time;\n" +
           "uniform float u_rm;\n" +
-          "uniform float u_mode;\n" +
           "in vec2 v_uv;\n" +
           "out vec4 fragColor;\n" +
           "const float PI = 3.14159265359;\n" +
@@ -494,88 +408,12 @@
           "  float v = 0.0;\n" +
           "  float a = 0.52;\n" +
           "  mat2 m = mat2(1.62, 1.21, -1.21, 1.62);\n" +
-          "  for (int i = 0; i < 4; i++) {\n" +
+          "  for (int i = 0; i < 3; i++) {\n" +
           "    v += a * noise(p);\n" +
           "    p = m * p * 2.02 + vec2(17.0, 9.0);\n" +
           "    a *= 0.5;\n" +
           "  }\n" +
           "  return v;\n" +
-          "}\n" +
-          "vec3 auroraFieldFluid(vec2 uv, float t, float breath) {\n" +
-          "  float x = uv.x;\n" +
-          "  float y = uv.y;\n" +
-          "  float angA = fbm(vec2(t * 0.023, 0.29)) * TAU * 2.0;\n" +
-          "  float angB = fbm(vec2(8.7, t * 0.02)) * TAU * 2.0;\n" +
-          "  float angC = fbm(vec2(t * 0.016, 4.4)) * TAU;\n" +
-          "  float angD = fbm(vec2(t * 0.012, 6.8)) * TAU;\n" +
-          "  vec2 vFlow = vec2(cos(angA), sin(angA)) * t * 0.064 + vec2(cos(angB + 1.8), sin(angB + 1.8)) * t * 0.05 + vec2(cos(angC + 2.7), sin(angC + 2.7)) * t * 0.036;\n" +
-          "  float xFlow = x + vFlow.x + 0.032 * sin(y * 5.8 + t * 0.64 + angD) + 0.022 * sin(x * TAU * 1.9 - y * 4.2 + t * 0.48);\n" +
-          "  float yAdv = vFlow.y * 0.5 + t * 0.017 * sin(angB * 2.2) + 0.028 * sin(x * TAU * 1.1 + y * 3.4 + t * 0.52 + angA);\n" +
-          "  float yF = y + yAdv;\n" +
-          "  vec2 q = vec2(xFlow, yF);\n" +
-          "  vec2 wA = vec2(fbm(q * 1.75 + t * 0.072), fbm(q * 1.75 + vec2(5.2, 1.8) + t * 0.065));\n" +
-          "  q += (wA - 0.5) * 0.125;\n" +
-          "  vec2 wB = vec2(fbm(q * 2.35 + vec2(t * 0.055, 0.0)), fbm(q * 2.35 + vec2(-2.8, t * 0.048)));\n" +
-          "  q += (wB - 0.5) * 0.1;\n" +
-          "  float eps = 0.032;\n" +
-          "  vec2 qt = q * 1.48 + t * 0.085;\n" +
-          "  float nC = fbm(qt);\n" +
-          "  float nCx = fbm(qt + vec2(eps, 0.0)) - fbm(qt - vec2(eps, 0.0));\n" +
-          "  float nCy = fbm(qt + vec2(0.0, eps)) - fbm(qt - vec2(0.0, eps));\n" +
-          "  q += vec2(nCy, -nCx) * 0.16;\n" +
-          "  float L1 = fbm(q * 1.05 + t * 0.042);\n" +
-          "  float L2 = fbm(q * 2.05 + vec2(37.0, -18.0) - t * 0.055);\n" +
-          "  float L3 = fbm(q * 3.6 + vec2(-12.0, 55.0) + t * 0.062);\n" +
-          "  float L4 = fbm(q * 0.68 + vec2(t * 0.028, 7.5));\n" +
-          "  float s1 = smoothstep(0.12, 0.62, L1) * (1.0 - smoothstep(0.48, 0.94, L1));\n" +
-          "  float s2 = smoothstep(0.15, 0.65, L2) * (1.0 - smoothstep(0.45, 0.92, L2));\n" +
-          "  float s3 = smoothstep(0.18, 0.58, L3) * (1.0 - smoothstep(0.5, 0.9, L3));\n" +
-          "  float s4 = smoothstep(0.25, 0.82, L4) * 0.55;\n" +
-          "  float fluid = clamp(s1 * 0.52 + s2 * 0.48 + s3 * 0.38 + s4 * 0.32, 0.0, 1.35);\n" +
-          "  float turb = 0.5 + 0.5 * sin(xFlow * TAU * 0.85 + yF * TAU * 0.62 - t * 0.41);\n" +
-          "  turb *= 0.5 + 0.5 * sin(xFlow * TAU * 1.55 + yF * TAU * 0.38 + t * 0.52 + L2 * 5.0);\n" +
-          "  float ripple = 0.78 + 0.22 * turb;\n" +
-          "  float mLow = smoothstep(-0.02, 0.2, y);\n" +
-          "  float wf = x * TAU;\n" +
-          "  float wf2 = y * TAU * 1.05 + xFlow * TAU * 0.62;\n" +
-          "  float blobSlow = fbm(vec2(t * 0.035, 2.5));\n" +
-          "  float topWave = 0.038 * sin(wf * 2.0 - t * 0.82 + blobSlow * 2.0) + 0.03 * sin(wf2 * 1.7 - t * 0.55 + fbm(vec2(t * 0.07, x * 2.2)) * 3.0) + 0.024 * sin(wf * 4.3 + t * 0.62 + angC);\n" +
-          "  float topScroll = fbm(vec2(xFlow * 3.2 + t * 0.16, t * 0.12 + 2.0)) * 0.036;\n" +
-          "  float yW = y + topWave + topScroll + fbm(vec2(x * 15.0 + t * 0.2, y * 3.5 + t * 0.24)) * 0.028 * smoothstep(0.35, 0.98, y);\n" +
-          "  float topBandShift = 0.026 * sin(wf * 1.6 + t * 0.5) * fbm(vec2(wf * 0.3, t * 0.04));\n" +
-          "  float z0 = 0.08 + topBandShift;\n" +
-          "  float zenK = 1.72 + 0.35 * sin(t * 0.21 + wf * 0.1);\n" +
-          "  float mHigh = exp(-pow(max(0.0, yW - z0) * zenK, 1.08));\n" +
-          "  mHigh = pow(clamp(mHigh, 0.0, 1.0), 0.95);\n" +
-          "  float mHighSoft = exp(-pow(max(0.0, yW - z0 + 0.08) * (zenK * 0.72), 0.98));\n" +
-          "  mHighSoft = pow(clamp(mHighSoft, 0.0, 1.0), 0.82);\n" +
-          "  float hMask = mLow * mHigh;\n" +
-          "  float hMaskHalo = mLow * mHighSoft;\n" +
-          "  float topDimFall = 1.0 - exp(-max(0.0, yW - 0.32) * 2.4);\n" +
-          "  float topDim = mix(1.0, 0.82, pow(topDimFall, 1.05));\n" +
-          "  topDim *= 0.88 + 0.12 * (0.5 + 0.5 * sin(wf2 * 2.1 + t * 0.58));\n" +
-          "  float I = fluid * ripple * hMask * topDim;\n" +
-          "  float mist = pow(max(0.0, L4 - 0.15), 1.35) * 0.45 + pow(max(0.0, 0.55 - abs(L1 - 0.5)), 2.0) * 0.25;\n" +
-          "  I += mist * hMaskHalo * topDim * (0.55 + 0.45 * breath);\n" +
-          "  I = pow(clamp(I, 0.0, 1.0), 0.88);\n" +
-          "  float cu = fbm(q * 1.25 + vec2(90.0, 10.0) + t * 0.038);\n" +
-          "  float cv = fbm(q * 1.7 + vec2(-20.0, 80.0) - t * 0.032);\n" +
-          "  float cw = fbm(q * 2.2 + vec2(t * 0.04, 50.0));\n" +
-          "  vec3 cG = vec3(0.18, 1.0, 0.32);\n" +
-          "  vec3 cC = vec3(0.08, 0.62, 0.92);\n" +
-          "  vec3 cM = vec3(0.82, 0.22, 0.98);\n" +
-          "  vec3 cB = vec3(0.12, 0.32, 0.88);\n" +
-          "  vec3 aur = mix(mix(cG, cC, smoothstep(0.1, 0.9, cu)), mix(cM, cB, smoothstep(0.15, 0.85, cv)), smoothstep(0.2, 0.8, cw + L3 * 0.25));\n" +
-          "  aur = mix(aur, cC, smoothstep(0.35, 0.75, L2) * 0.35);\n" +
-          "  float edge = smoothstep(0.0, 0.08, x) * smoothstep(1.0, 0.92, x);\n" +
-          "  vec3 glow = aur * I * edge;\n" +
-          "  float diff = pow(fbm(q * 0.58 + t * 0.022), 1.8) * 0.2 * hMaskHalo * topDim;\n" +
-          "  vec3 diffCol = mix(cC * 0.4, cM * 0.35, smoothstep(0.2, 0.8, cu));\n" +
-          "  glow += diffCol * diff * edge * (0.85 + 0.15 * breath);\n" +
-          "  float zenReach = 1.0 - exp(-max(0.0, yW - 0.42) * 2.9);\n" +
-          "  float zenCh = (0.5 + 0.5 * sin(wf * 2.6 - t * 0.82 + yW * 10.0)) * (0.55 + 0.45 * fbm(vec2(xFlow * 1.4 + t * 0.1, y * 5.5 + t * 0.06)));\n" +
-          "  glow += mix(cB * 0.32, cC * 0.28, cv) * zenReach * zenCh * hMaskHalo * edge * (0.055 + 0.04 * breath);\n" +
-          "  return glow;\n" +
           "}\n" +
           "vec3 auroraFieldCorona(vec2 uv, float t, float breath) {\n" +
           "  float x = uv.x;\n" +
@@ -593,7 +431,7 @@
           "  float theta = atan(p.y + 0.0001, p.x);\n" +
           "  float curtain = 0.0;\n" +
           "  float edgeBand = 0.0;\n" +
-          "  for (int i = 0; i < 7; i++) {\n" +
+          "  for (int i = 0; i < 6; i++) {\n" +
           "    float id = float(i);\n" +
           "    float seed = 7.1 + id * 11.37;\n" +
           "    float base = -PI + TAU * hash(vec2(seed, 0.37));\n" +
@@ -613,7 +451,7 @@
           "    float band = smoothstep(rb - bw, rb, r) * (1.0 - smoothstep(rb + 0.01, rb + bw * 2.0, r));\n" +
           "    edgeBand += band * lobe;\n" +
           "  }\n" +
-          "  curtain = clamp(curtain / 1.75, 0.0, 1.6);\n" +
+          "  curtain = clamp(curtain / 1.55, 0.0, 1.6);\n" +
           "  edgeBand = clamp(edgeBand / 2.0, 0.0, 1.0);\n" +
           "  float fold = 0.6 + 0.4 * (0.5 + 0.5 * sin(theta * (72.0 + 8.0 * sin(ts * 0.23)) + r * 28.0 - tm * 1.35 + flow.x * 8.0));\n" +
           "  float patternGate = smoothstep(0.34, 0.72, fbm(vec2(ts * 0.11, 1.7)));\n" +
@@ -648,26 +486,14 @@
           "  glow += mix(cC * 0.4, cP * 0.3, colorShift) * haze * mLow * edgeLR;\n" +
           "  return glow;\n" +
           "}\n" +
-          "vec3 auroraField(vec2 uv, float t, float breath, float md) {\n" +
-          "  if (md < 0.5) return auroraFieldFluid(uv, t, breath);\n" +
-          "  return auroraFieldCorona(uv, t, breath);\n" +
-          "}\n" +
           "void main() {\n" +
           "  float baseTime = u_time * (0.0000062 * mix(1.0, 0.028, u_rm));\n" +
-          "  float isFluid = 1.0 - step(0.5, u_mode);\n" +
           "  float slowCarrierC = 0.5 + 0.5 * sin(u_time * 0.00002 + 0.9 * sin(u_time * 0.0000056));\n" +
           "  float accelWindowC = smoothstep(0.64, 0.93, slowCarrierC);\n" +
           "  float accelOscC = 0.5 + 0.5 * sin(u_time * 0.000055 + 0.7 * sin(u_time * 0.000011));\n" +
           "  float cruiseC = mix(0.08, 0.28 + 0.72 * accelOscC, accelWindowC);\n" +
-          "  float speedMulC = mix(0.09, 0.70, cruiseC);\n" +
-          "  float slowCarrierF = 0.5 + 0.5 * sin(u_time * 0.000032 + 0.65 * sin(u_time * 0.000009));\n" +
-          "  float accelWindowF = smoothstep(0.52, 0.86, slowCarrierF);\n" +
-          "  float accelOscF = 0.5 + 0.5 * sin(u_time * 0.00008 + 0.6 * sin(u_time * 0.000017));\n" +
-          "  float cruiseF = mix(0.34, 0.46 + 0.54 * accelOscF, accelWindowF);\n" +
-          "  float speedMulF = mix(0.34, 1.0, cruiseF);\n" +
-          "  float speedMul = mix(speedMulC, speedMulF, isFluid);\n" +
-          "  float modeBoost = mix(1.0, 3.8, isFluid);\n" +
-          "  float t = baseTime * speedMul * modeBoost;\n" +
+          "  float speedMulC = mix(0.09, 0.46, cruiseC);\n" +
+          "  float t = baseTime * speedMulC;\n" +
           "  float x = v_uv.x;\n" +
           "  float y = v_uv.y;\n" +
           "  float breath = 0.5 + 0.5 * sin(u_time * 0.00016);\n" +
@@ -675,7 +501,7 @@
           "  vec3 skyHi = vec3(0.022, 0.015, 0.082);\n" +
           "  vec3 sky = mix(skyLo, skyHi, smoothstep(0.0, 1.0, x) * 0.5 + y * 0.5);\n" +
           "  sky += vec3(0.004, 0.006, 0.014) * pow(y, 2.8) * 0.55;\n" +
-          "  vec3 glow = auroraField(v_uv, t, breath, u_mode);\n" +
+          "  vec3 glow = auroraFieldCorona(v_uv, t, breath);\n" +
           "  vec3 outRgb = sky + glow * 1.04;\n" +
           "  float lowFog = exp(-y * 3.2) * (0.09 + 0.05 * fbm(vec2(x * 3.2 + t * 0.04, 2.1)));\n" +
           "  outRgb += vec3(0.08, 0.22, 0.26) * lowFog;\n" +
@@ -737,7 +563,6 @@
           if (!prog) return false;
           uLoc.time = gl.getUniformLocation(prog, "u_time");
           uLoc.rm = gl.getUniformLocation(prog, "u_rm");
-          uLoc.mode = gl.getUniformLocation(prog, "u_mode");
           buf = gl.createBuffer();
           gl.bindBuffer(gl.ARRAY_BUFFER, buf);
           gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -753,7 +578,6 @@
           gl.useProgram(prog);
           gl.uniform1f(uLoc.time, t);
           gl.uniform1f(uLoc.rm, reducedMotion ? 1.0 : 0.0);
-          if (uLoc.mode != null) gl.uniform1f(uLoc.mode, auroraMode);
           gl.viewport(0, 0, canvas.width, canvas.height);
           gl.bindBuffer(gl.ARRAY_BUFFER, buf);
           gl.clearColor(0.02, 0.02, 0.04, 1);
@@ -768,21 +592,12 @@
           fallbackCtx.imageSmoothingEnabled = true;
           var cx = W * 0.5;
           var cy = H * 0.46;
-          var rx = W * 0.55;
-          var ry = H * 0.5;
-          var g;
-          if (auroraMode >= 0.5) {
-            g = fallbackCtx.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.08, cx, cy, Math.max(rx, ry) * 1.05);
-            g.addColorStop(0, "hsl(230, 45%, 3%)");
-            g.addColorStop(0.35, "hsl(175, 38%, 8%)");
-            g.addColorStop(0.62, "hsl(200, 42%, 7%)");
-            g.addColorStop(1, "hsl(275, 40%, 5%)");
-          } else {
-            g = fallbackCtx.createLinearGradient(0, 0, W, 0);
-            g.addColorStop(0, "hsl(220, 52%, 4%)");
-            g.addColorStop(0.42, "hsl(252, 46%, 4.5%)");
-            g.addColorStop(1, "hsl(288, 50%, 5%)");
-          }
+          var rr = Math.max(W * 0.55, H * 0.5);
+          var g = fallbackCtx.createRadialGradient(cx, cy, rr * 0.08, cx, cy, rr * 1.05);
+          g.addColorStop(0, "hsl(230, 45%, 3%)");
+          g.addColorStop(0.35, "hsl(175, 38%, 8%)");
+          g.addColorStop(0.62, "hsl(200, 42%, 7%)");
+          g.addColorStop(1, "hsl(275, 40%, 5%)");
           fallbackCtx.fillStyle = g;
           fallbackCtx.fillRect(0, 0, W, H);
         }
@@ -799,6 +614,7 @@
         var brightStars = [];
         var brightSprite = null;
         var brightFlareSprite = null;
+        var lastStarsDrawAt = -1;
 
         function mulberry32(a) {
           return function () {
@@ -835,7 +651,7 @@
           var rnd = mulberry32(0x9e3779b9 ^ (W | 0) ^ (H << 16));
           stars = [];
           brightStars = [];
-          var cap = Math.min(320, Math.max(80, Math.floor((W * H) / 7000)));
+          var cap = Math.min(220, Math.max(64, Math.floor((W * H) / 11000)));
           var k = 0;
           for (; k < cap; k++) {
             stars.push({
@@ -870,16 +686,18 @@
           W = window.innerWidth;
           H = window.innerHeight;
           var auroraPx = dpr * AURORA_BUFFER_SCALE;
+          var starPx = dpr * STAR_BUFFER_SCALE;
           canvas.width = Math.max(1, Math.floor(W * auroraPx));
           canvas.height = Math.max(1, Math.floor(H * auroraPx));
           canvas.style.width = W + "px";
           canvas.style.height = H + "px";
-          sCanvas.width = Math.floor(W * dpr);
-          sCanvas.height = Math.floor(H * dpr);
+          sCanvas.width = Math.max(1, Math.floor(W * starPx));
+          sCanvas.height = Math.max(1, Math.floor(H * starPx));
           sCanvas.style.width = W + "px";
           sCanvas.style.height = H + "px";
           initStarSprites();
           initStars();
+          lastStarsDrawAt = -1;
           if (webglReady && gl && prog && buf) {
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
             var aloc = gl.getAttribLocation(prog, "a_pos");
@@ -896,7 +714,8 @@
         }
 
         function drawStars(t) {
-          sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          var starPx = dpr * STAR_BUFFER_SCALE;
+          sctx.setTransform(starPx, 0, 0, starPx, 0, 0);
           sctx.clearRect(0, 0, W, H);
           var k = 0;
           var len = stars.length;
@@ -959,15 +778,11 @@
         function frame(t) {
           if (!frozen) {
             drawAurora(t);
-            drawStars(t);
+            if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= STAR_FRAME_INTERVAL_MS) {
+              drawStars(t);
+              lastStarsDrawAt = t;
+            }
           }
-        }
-
-        /** 모드 전환·접근성(reduce motion) 시에도 캔버스가 한 프레임 갱신되도록 */
-        function repaintAuroraAndStars() {
-          var t = performance.now();
-          drawAurora(t);
-          drawStars(t);
         }
 
         function tick(t) {
@@ -980,6 +795,7 @@
         if (!webglReady) fallbackCtx = canvas.getContext("2d", { alpha: false });
 
         frame(0);
+        lastStarsDrawAt = 0;
 
         if (reducedMotion) {
           frozen = true;
@@ -998,31 +814,6 @@
 
         window.addEventListener("resize", scheduleResize, { passive: true });
 
-        var btnFluid = document.getElementById("btn-aurora-fluid");
-        var btnCorona = document.getElementById("btn-aurora-corona");
-        function syncModeButtons() {
-          if (btnFluid) btnFluid.setAttribute("aria-pressed", auroraMode < 0.5 ? "true" : "false");
-          if (btnCorona) btnCorona.setAttribute("aria-pressed", auroraMode >= 0.5 ? "true" : "false");
-        }
-        function setAuroraMode(m) {
-          auroraMode = m;
-          try {
-            localStorage.setItem(STORAGE_MODE, m < 0.5 ? "0" : "1");
-          } catch (e) {}
-          syncModeButtons();
-          repaintAuroraAndStars();
-        }
-        if (btnFluid) {
-          btnFluid.addEventListener("click", function () {
-            setAuroraMode(0.0);
-          });
-        }
-        if (btnCorona) {
-          btnCorona.addEventListener("click", function () {
-            setAuroraMode(1.0);
-          });
-        }
-        syncModeButtons();
       })();
     </script>
   </body>
