@@ -598,7 +598,7 @@
           "  float theta = atan(p.y + 0.0001, p.x);\n" +
           "  float curtain = 0.0;\n" +
           "  float edgeBand = 0.0;\n" +
-          "  for (int i = 0; i < 6; i++) {\n" +
+          "  for (int i = 0; i < 7; i++) {\n" +
           "    float id = float(i);\n" +
           "    float seed = 7.1 + id * 11.37;\n" +
           "    float base = -PI + TAU * hash(vec2(seed, 0.37));\n" +
@@ -611,26 +611,26 @@
           "    float r0 = 0.08 + 0.03 * id + 0.03 * fbm(vec2(seed * 0.7, ts * 0.12));\n" +
           "    float r1 = 0.6 + 0.12 * sin(ts * (0.21 + 0.04 * id) + seed);\n" +
           "    float radial = smoothstep(r0, r0 + 0.09, r) * (1.0 - smoothstep(r1, r1 + 0.2, r));\n" +
-          "    float amp = 0.55 + 0.55 * fbm(vec2(seed * 0.31 + theta * 2.0, ts * 0.19));\n" +
+          "    float amp = 0.62 + 0.6 * fbm(vec2(seed * 0.31 + theta * 2.0, ts * 0.19));\n" +
           "    curtain += lobe * radial * amp;\n" +
           "    float rb = 0.24 + 0.19 * id * 0.22 + 0.06 * sin(theta * (5.0 + id) + tm * (0.33 + id * 0.04));\n" +
           "    float bw = 0.018 + 0.04 * fbm(vec2(seed + theta * 2.1, ts * 0.21));\n" +
           "    float band = smoothstep(rb - bw, rb, r) * (1.0 - smoothstep(rb + 0.01, rb + bw * 2.0, r));\n" +
           "    edgeBand += band * lobe;\n" +
           "  }\n" +
-          "  curtain = clamp(curtain / 1.95, 0.0, 1.5);\n" +
+          "  curtain = clamp(curtain / 1.75, 0.0, 1.6);\n" +
           "  edgeBand = clamp(edgeBand / 2.0, 0.0, 1.0);\n" +
           "  float fold = 0.6 + 0.4 * (0.5 + 0.5 * sin(theta * (72.0 + 8.0 * sin(ts * 0.23)) + r * 28.0 - tm * 1.35 + flow.x * 8.0));\n" +
           "  float patternGate = smoothstep(0.34, 0.72, fbm(vec2(ts * 0.11, 1.7)));\n" +
           "  float ordered = curtain * fold;\n" +
           "  float chaotic = curtain * (0.35 + 0.65 * fbm(vec2(theta * 11.0 + tm * 0.62, r * 6.8 - ts * 0.31)));\n" +
           "  float pattern = mix(ordered, chaotic, patternGate);\n" +
-          "  float alive = smoothstep(0.14, 0.74, fbm(vec2(theta * 4.5 + ts * 0.23, r * 2.2 - ts * 0.17)));\n" +
+          "  float alive = smoothstep(0.1, 0.68, fbm(vec2(theta * 4.5 + ts * 0.23, r * 2.2 - ts * 0.17)));\n" +
           "  float vanish = 1.0 - smoothstep(0.72, 0.98, fbm(vec2(theta * 6.0 - ts * 0.28, r * 1.7 + 4.3)));\n" +
           "  float merge = 0.5 + 0.5 * sin(theta * (4.0 + 2.2 * fbm(vec2(ts * 0.07, 2.9))) + tm * 0.55);\n" +
           "  float widthBreath = 0.82 + 0.32 * merge;\n" +
           "  float mLow = smoothstep(-0.02, 0.16, y);\n" +
-          "  float I = pattern * alive * vanish * widthBreath * mLow;\n" +
+          "  float I = pattern * (0.18 + 0.82 * alive) * vanish * widthBreath * mLow;\n" +
           "  I *= 0.72 + 0.28 * breath;\n" +
           "  I *= 0.92 + edgeBand * (0.5 + 0.35 * (1.0 - patternGate));\n" +
           "  I = pow(clamp(I, 0.0, 1.0), 0.8);\n" +
@@ -659,12 +659,20 @@
           "}\n" +
           "void main() {\n" +
           "  float baseTime = u_time * (0.0000062 * mix(1.0, 0.028, u_rm));\n" +
-          "  float slowCarrier = 0.5 + 0.5 * sin(u_time * 0.000012 + 0.9 * sin(u_time * 0.0000032));\n" +
-          "  float accelWindow = smoothstep(0.78, 0.985, slowCarrier);\n" +
-          "  float accelOsc = 0.5 + 0.5 * sin(u_time * 0.000041 + 0.7 * sin(u_time * 0.000008));\n" +
-          "  float cruise = mix(0.02, 0.22 + 0.78 * accelOsc, accelWindow);\n" +
-          "  float speedMul = mix(0.03, 1.0, cruise);\n" +
-          "  float t = baseTime * speedMul;\n" +
+          "  float isFluid = 1.0 - step(0.5, u_mode);\n" +
+          "  float slowCarrierC = 0.5 + 0.5 * sin(u_time * 0.00002 + 0.9 * sin(u_time * 0.0000056));\n" +
+          "  float accelWindowC = smoothstep(0.64, 0.93, slowCarrierC);\n" +
+          "  float accelOscC = 0.5 + 0.5 * sin(u_time * 0.000055 + 0.7 * sin(u_time * 0.000011));\n" +
+          "  float cruiseC = mix(0.08, 0.28 + 0.72 * accelOscC, accelWindowC);\n" +
+          "  float speedMulC = mix(0.09, 1.0, cruiseC);\n" +
+          "  float slowCarrierF = 0.5 + 0.5 * sin(u_time * 0.000032 + 0.65 * sin(u_time * 0.000009));\n" +
+          "  float accelWindowF = smoothstep(0.52, 0.86, slowCarrierF);\n" +
+          "  float accelOscF = 0.5 + 0.5 * sin(u_time * 0.00008 + 0.6 * sin(u_time * 0.000017));\n" +
+          "  float cruiseF = mix(0.34, 0.46 + 0.54 * accelOscF, accelWindowF);\n" +
+          "  float speedMulF = mix(0.34, 1.0, cruiseF);\n" +
+          "  float speedMul = mix(speedMulC, speedMulF, isFluid);\n" +
+          "  float modeBoost = mix(1.0, 3.8, isFluid);\n" +
+          "  float t = baseTime * speedMul * modeBoost;\n" +
           "  float x = v_uv.x;\n" +
           "  float y = v_uv.y;\n" +
           "  float breath = 0.5 + 0.5 * sin(u_time * 0.00016);\n" +
