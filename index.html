@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LookGood — Aurora</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-deep: oklch(8% 0.06 270);
+        --text: oklch(96% 0.01 270);
+        --text-muted: oklch(72% 0.04 250);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100%;
+        font-family: "DM Sans", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg-deep);
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+
+      .space {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        background: radial-gradient(ellipse 100% 70% at 50% 0%, oklch(14% 0.1 250) 0%, transparent 50%), var(--bg-deep);
+      }
+
+      .aurora-stage {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        overflow: hidden;
+        background: var(--bg-deep);
+        /* 합성 스택 고정 — backdrop-filter·캔버스 갱신 시 깜빡임 완화 */
+        isolation: isolate;
+      }
+
+      #aurora-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        /* filter는 GPU 캔버스마다 별도 오프스크린 합성을 유발해 간헐적 플리커 원인이 됨 → 셰이더에서 동일 톤 보정 */
+        image-rendering: auto;
+        /* 레이어 안정화(하드웨어 경로) */
+        transform: translateZ(0);
+        backface-visibility: hidden;
+      }
+
+      /* 오로라 광선이 구름처럼 뭉개지지 않도록 최소 블러만 */
+      .aurora-blur {
+        position: absolute;
+        inset: -5%;
+        z-index: 2;
+        pointer-events: none;
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        mask-image: radial-gradient(ellipse 88% 78% at 50% 38%, black 28%, transparent 78%);
+        -webkit-mask-image: radial-gradient(ellipse 88% 78% at 50% 38%, black 28%, transparent 78%);
+      }
+
+      #stars-canvas {
+        display: block;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 4;
+        pointer-events: none;
+      }
+
+      /* 상단을 너무 어둡게 두면 오로라(상공 호)가 전부 가려짐 — 텍스트는 그림자로 대비 유지 */
+      .video-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 3;
+        pointer-events: none;
+        background: linear-gradient(
+          180deg,
+          oklch(6% 0.06 270 / 0.34) 0%,
+          oklch(8% 0.06 270 / 0.1) 32%,
+          oklch(8% 0.08 290 / 0.09) 55%,
+          oklch(5% 0.06 270 / 0.78) 100%
+        );
+      }
+
+      .grain {
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        pointer-events: none;
+        opacity: 0.035;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+
+      .vignette {
+        position: fixed;
+        inset: 0;
+        z-index: 6;
+        pointer-events: none;
+        background: radial-gradient(
+          ellipse 72% 58% at 50% 42%,
+          transparent 0%,
+          oklch(4% 0.06 270 / 0.55) 55%,
+          oklch(3% 0.05 270 / 0.95) 100%
+        );
+      }
+
+      main {
+        position: relative;
+        z-index: 7;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0;
+        text-align: center;
+      }
+
+      .hero {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: clamp(1.5rem, 5vw, 3rem);
+      }
+
+      .scroll-hint {
+        margin-top: 1.5rem;
+        font-size: 0.8125rem;
+        color: oklch(58% 0.05 260);
+        text-shadow: 0 1px 10px oklch(4% 0.06 270 / 0.9);
+        opacity: 0.9;
+      }
+
+      .scroll-probe {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 36rem;
+        padding: clamp(2rem, 6vw, 4rem) clamp(1.5rem, 5vw, 2rem) clamp(4rem, 12vh, 6rem);
+        text-align: left;
+      }
+
+      .scroll-probe h2 {
+        margin: 0 0 1rem;
+        font-size: clamp(1.25rem, 3vw, 1.5rem);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        text-shadow: 0 2px 20px oklch(4% 0.06 270 / 0.95);
+      }
+
+      .scroll-probe p {
+        margin: 0 0 1rem;
+        font-size: 0.9375rem;
+        line-height: 1.7;
+        color: var(--text-muted);
+        text-shadow: 0 1px 12px oklch(4% 0.06 270 / 0.85);
+      }
+
+      .scroll-probe .card {
+        margin-top: 1.25rem;
+        padding: 1rem 1.15rem;
+        border-radius: 12px;
+        background: oklch(14% 0.05 270 / 0.5);
+        border: 1px solid oklch(65% 0.08 280 / 0.25);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      .scroll-probe .card strong {
+        color: oklch(88% 0.04 250);
+        font-weight: 600;
+      }
+
+      .scroll-probe .card + p {
+        margin-top: 1.5rem;
+      }
+
+      .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 1.25rem;
+        border: 1px solid oklch(70% 0.06 250 / 0.35);
+        padding: 0.45rem 0.85rem;
+        border-radius: 999px;
+        backdrop-filter: blur(8px);
+        background: oklch(12% 0.05 270 / 0.45);
+      }
+
+      h1 {
+        margin: 0 0 1rem;
+        font-size: clamp(2.25rem, 6vw, 3.5rem);
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+        text-shadow: 0 2px 28px oklch(4% 0.06 270 / 0.95);
+      }
+
+      .lead {
+        max-width: 28rem;
+        margin: 0 auto 2rem;
+        font-size: clamp(1rem, 2.4vw, 1.125rem);
+        line-height: 1.65;
+        color: var(--text-muted);
+        text-shadow: 0 1px 14px oklch(4% 0.06 270 / 0.9);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: center;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0.65rem 1.35rem;
+        font-family: inherit;
+        font-size: 0.95rem;
+        font-weight: 600;
+        text-decoration: none;
+        color: oklch(15% 0.05 270);
+        background: linear-gradient(
+          135deg,
+          oklch(78% 0.14 175) 0%,
+          oklch(72% 0.16 230) 45%,
+          oklch(68% 0.18 300) 100%
+        );
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow:
+          0 0 0 1px oklch(90% 0.06 200 / 0.3),
+          0 12px 40px oklch(35% 0.2 260 / 0.45);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow:
+          0 0 0 1px oklch(92% 0.06 200 / 0.4),
+          0 16px 48px oklch(40% 0.22 280 / 0.5);
+      }
+
+      .btn:focus-visible {
+        outline: 2px solid oklch(78% 0.14 175);
+        outline-offset: 3px;
+      }
+
+      .btn--ghost {
+        color: var(--text);
+        background: oklch(18% 0.05 270 / 0.55);
+        box-shadow: 0 0 0 1px oklch(65% 0.1 280 / 0.35);
+        backdrop-filter: blur(10px);
+      }
+
+      .btn--ghost:hover {
+        background: oklch(24% 0.06 280 / 0.6);
+        box-shadow: 0 0 0 1px oklch(72% 0.1 300 / 0.45);
+      }
+
+      .site-footer {
+        margin-top: auto;
+        padding: 0 clamp(1.5rem, 5vw, 3rem) clamp(2.5rem, 8vh, 4rem);
+        font-size: 0.75rem;
+        line-height: 1.5;
+        color: oklch(52% 0.05 260);
+        text-shadow: 0 1px 10px oklch(4% 0.06 270 / 0.95);
+      }
+
+      .aurora-mode-panel {
+        position: fixed;
+        right: clamp(0.75rem, 3vw, 1.25rem);
+        bottom: clamp(0.75rem, 3vw, 1.25rem);
+        z-index: 20;
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.65rem 0.75rem;
+        border-radius: 12px;
+        background: oklch(12% 0.05 270 / 0.72);
+        border: 1px solid oklch(65% 0.08 280 / 0.35);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: 0 8px 32px oklch(4% 0.06 270 / 0.5);
+        max-width: min(18rem, calc(100vw - 1.5rem));
+      }
+
+      .aurora-mode-panel .aurora-mode-panel__label {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: oklch(62% 0.04 260);
+      }
+
+      .aurora-mode-panel .seg {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+      }
+
+      .aurora-mode-panel button {
+        flex: 1;
+        min-width: 0;
+        min-height: 40px;
+        padding: 0.4rem 0.6rem;
+        font-family: inherit;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: oklch(88% 0.03 260);
+        background: oklch(20% 0.05 270 / 0.6);
+        border: 1px solid oklch(55% 0.08 280 / 0.4);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      }
+
+      .aurora-mode-panel button:hover {
+        background: oklch(26% 0.06 280 / 0.75);
+        border-color: oklch(65% 0.1 280 / 0.5);
+      }
+
+      .aurora-mode-panel button[aria-pressed="true"] {
+        color: oklch(12% 0.05 270);
+        background: linear-gradient(135deg, oklch(72% 0.14 175), oklch(65% 0.16 260));
+        border-color: oklch(78% 0.1 200 / 0.45);
+      }
+
+      .aurora-mode-panel button:focus-visible {
+        outline: 2px solid oklch(78% 0.14 175);
+        outline-offset: 2px;
+      }
+
+      .aurora-mode-panel .hint {
+        margin: 0;
+        font-size: 0.6875rem;
+        line-height: 1.45;
+        color: oklch(58% 0.04 260);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="space" aria-hidden="true"></div>
+
+    <div class="aurora-stage" aria-hidden="true">
+      <canvas id="aurora-canvas" role="presentation"></canvas>
+      <div class="aurora-blur" aria-hidden="true"></div>
+    </div>
+
+    <div class="video-scrim" aria-hidden="true"></div>
+    <canvas id="stars-canvas" aria-hidden="true" role="presentation"></canvas>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <div class="aurora-mode-panel" role="group" aria-labelledby="aurora-mode-label">
+      <span id="aurora-mode-label" class="aurora-mode-panel__label">표현 모드</span>
+      <div class="seg" role="presentation">
+        <button type="button" id="btn-aurora-fluid" aria-pressed="false">유체·확산</button>
+        <button type="button" id="btn-aurora-corona" aria-pressed="true">코로나·커튼</button>
+      </div>
+      <p class="hint">선택은 이 브라우저에 저장됩니다. 비교 후 마음에 드는 쪽을 고르세요.</p>
+    </div>
+
+    <main>
+      <div class="hero">
+        <span class="badge">Cosmos · Aurora</span>
+        <h1>밤하늘 아래,<br />빛의 물결</h1>
+        <p class="lead">
+          초록·청록·보라 빛이 밤하늘에 퍼집니다. 우측 하단에서 유체 확산과 코로나·커튼 표현을 바꿔 비교해 보세요.
+        </p>
+        <div class="actions">
+          <a class="btn" href="#">시작하기</a>
+          <a class="btn btn--ghost" href="#">더 알아보기</a>
+        </div>
+        <p class="scroll-hint" aria-hidden="true">아래로 스크롤 · 배경은 고정, 콘텐츠만 이동합니다</p>
+      </div>
+
+      <section class="scroll-probe" aria-labelledby="probe-title">
+        <h2 id="probe-title">스크롤·부하 확인</h2>
+        <p>
+          오로라·별·그레인 레이어는 모두 <code style="opacity: 0.85">position: fixed</code> 이라 뷰포트에 붙어 있고,
+          스크롤해도 다시 그리는 영역 크기는 변하지 않습니다. 개발자 도구 Performance에서 스크롤 구간을 녹화하면
+          메인 스레드·GPU 부하를 비교하기 좋습니다.
+        </p>
+        <div class="card">
+          <strong>기대 동작:</strong> 스크롤 중에도 rAF는 동일하게 돌고, 레이아웃/페인트는 주로 <code>main</code> 안의
+          텍스트 블록만 해당합니다. 버벅임이 보이면 브라우저·GPU 드라이버 또는 다른 탭을 함께 확인해 보세요.
+        </div>
+        <p>
+          같은 문단을 반복해 스크롤 거리만 늘립니다. 실제 제품에서는 여기에 섹션·카드·리스트를 두면 됩니다.
+        </p>
+        <p>
+          배경 애니메이션은 전체 화면 단위로 유지되므로, 긴 페이지에서도 “스크롤할수록 더 많은 픽셀을 그린다”는 식의
+          부하는 없습니다(캔버스 해상도는 창 크기에만 의존).
+        </p>
+        <p>
+          스크롤 끝까지 내려가 본 뒤, 다시 위로 올려 전환 시 프레임 드랍이 있는지 확인해 보세요.
+        </p>
+      </section>
+
+      <footer class="site-footer">LookGood · WebGL2 프로시저럴 오로라 + 2D 별 (오프라인 동작)</footer>
+    </main>
+
+    <script>
+      (function () {
+        var canvas = document.getElementById("aurora-canvas");
+        var sCanvas = document.getElementById("stars-canvas");
+        /* getContext 존재 여부로 return 하면 일부 환경에서 이후 버튼 바인딩까지 스킵됨 */
+        if (!canvas || !sCanvas) return;
+
+        /** GPU 풀스크린 패스 1회 — Canvas2D 수백 그라데이션 대비 필레이트 비용 최소 */
+        var AURORA_BUFFER_SCALE = 0.55;
+        var gl = null;
+        var prog = null;
+        var uLoc = {};
+        var buf = null;
+        var webglReady = false;
+        var fallbackCtx = null;
+        var STORAGE_MODE = "lookgood-aurora-mode";
+        var auroraMode = 1.0;
+        try {
+          var sm = localStorage.getItem(STORAGE_MODE);
+          if (sm === "0") auroraMode = 0.0;
+          else if (sm === "1") auroraMode = 1.0;
+        } catch (e) {}
+
+        var VS_SRC =
+          "#version 300 es\n" +
+          "in vec2 a_pos;\n" +
+          "out vec2 v_uv;\n" +
+          "void main() {\n" +
+          "  v_uv = vec2(a_pos.x * 0.5 + 0.5, 1.0 - (a_pos.y * 0.5 + 0.5));\n" +
+          "  gl_Position = vec4(a_pos, 0.0, 1.0);\n" +
+          "}\n";
+
+        var FS_SRC =
+          "#version 300 es\n" +
+          "precision highp float;\n" +
+          "uniform float u_time;\n" +
+          "uniform float u_rm;\n" +
+          "uniform float u_mode;\n" +
+          "in vec2 v_uv;\n" +
+          "out vec4 fragColor;\n" +
+          "const float PI = 3.14159265359;\n" +
+          "const float TAU = 6.28318530718;\n" +
+          "float hash(vec2 p) {\n" +
+          "  vec3 q = fract(vec3(p.xyx) * 0.1031);\n" +
+          "  q += dot(q, q.yzx + 33.33);\n" +
+          "  return fract((q.x + q.y) * q.z);\n" +
+          "}\n" +
+          "float noise(vec2 p) {\n" +
+          "  vec2 i = floor(p);\n" +
+          "  vec2 f = fract(p);\n" +
+          "  vec2 u = f * f * (3.0 - 2.0 * f);\n" +
+          "  return mix(\n" +
+          "    mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),\n" +
+          "    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),\n" +
+          "    u.y\n" +
+          "  );\n" +
+          "}\n" +
+          "float fbm(vec2 p) {\n" +
+          "  float v = 0.0;\n" +
+          "  float a = 0.52;\n" +
+          "  mat2 m = mat2(1.62, 1.21, -1.21, 1.62);\n" +
+          "  for (int i = 0; i < 4; i++) {\n" +
+          "    v += a * noise(p);\n" +
+          "    p = m * p * 2.02 + vec2(17.0, 9.0);\n" +
+          "    a *= 0.5;\n" +
+          "  }\n" +
+          "  return v;\n" +
+          "}\n" +
+          "float mountainRidge(float x, float t) {\n" +
+          "  float n = fbm(vec2(x * 4.2 + t * 0.02, 2.1));\n" +
+          "  float s = sin(x * TAU * 1.85 + n * 2.8 + 0.4);\n" +
+          "  return 0.085 + 0.11 * n + 0.06 * s * s;\n" +
+          "}\n" +
+          "vec3 auroraFieldFluid(vec2 uv, float t, float breath) {\n" +
+          "  float x = uv.x;\n" +
+          "  float y = uv.y;\n" +
+          "  float angA = fbm(vec2(t * 0.023, 0.29)) * TAU * 2.0;\n" +
+          "  float angB = fbm(vec2(8.7, t * 0.02)) * TAU * 2.0;\n" +
+          "  float angC = fbm(vec2(t * 0.016, 4.4)) * TAU;\n" +
+          "  float angD = fbm(vec2(t * 0.012, 6.8)) * TAU;\n" +
+          "  vec2 vFlow = vec2(cos(angA), sin(angA)) * t * 0.064 + vec2(cos(angB + 1.8), sin(angB + 1.8)) * t * 0.05 + vec2(cos(angC + 2.7), sin(angC + 2.7)) * t * 0.036;\n" +
+          "  float xFlow = x + vFlow.x + 0.032 * sin(y * 5.8 + t * 0.64 + angD) + 0.022 * sin(x * TAU * 1.9 - y * 4.2 + t * 0.48);\n" +
+          "  float yAdv = vFlow.y * 0.5 + t * 0.017 * sin(angB * 2.2) + 0.028 * sin(x * TAU * 1.1 + y * 3.4 + t * 0.52 + angA);\n" +
+          "  float yF = y + yAdv;\n" +
+          "  vec2 q = vec2(xFlow, yF);\n" +
+          "  vec2 wA = vec2(fbm(q * 1.75 + t * 0.072), fbm(q * 1.75 + vec2(5.2, 1.8) + t * 0.065));\n" +
+          "  q += (wA - 0.5) * 0.125;\n" +
+          "  vec2 wB = vec2(fbm(q * 2.35 + vec2(t * 0.055, 0.0)), fbm(q * 2.35 + vec2(-2.8, t * 0.048)));\n" +
+          "  q += (wB - 0.5) * 0.1;\n" +
+          "  float eps = 0.032;\n" +
+          "  vec2 qt = q * 1.48 + t * 0.085;\n" +
+          "  float nC = fbm(qt);\n" +
+          "  float nCx = fbm(qt + vec2(eps, 0.0)) - fbm(qt - vec2(eps, 0.0));\n" +
+          "  float nCy = fbm(qt + vec2(0.0, eps)) - fbm(qt - vec2(0.0, eps));\n" +
+          "  q += vec2(nCy, -nCx) * 0.16;\n" +
+          "  float L1 = fbm(q * 1.05 + t * 0.042);\n" +
+          "  float L2 = fbm(q * 2.05 + vec2(37.0, -18.0) - t * 0.055);\n" +
+          "  float L3 = fbm(q * 3.6 + vec2(-12.0, 55.0) + t * 0.062);\n" +
+          "  float L4 = fbm(q * 0.68 + vec2(t * 0.028, 7.5));\n" +
+          "  float s1 = smoothstep(0.12, 0.62, L1) * (1.0 - smoothstep(0.48, 0.94, L1));\n" +
+          "  float s2 = smoothstep(0.15, 0.65, L2) * (1.0 - smoothstep(0.45, 0.92, L2));\n" +
+          "  float s3 = smoothstep(0.18, 0.58, L3) * (1.0 - smoothstep(0.5, 0.9, L3));\n" +
+          "  float s4 = smoothstep(0.25, 0.82, L4) * 0.55;\n" +
+          "  float fluid = clamp(s1 * 0.52 + s2 * 0.48 + s3 * 0.38 + s4 * 0.32, 0.0, 1.35);\n" +
+          "  float turb = 0.5 + 0.5 * sin(xFlow * TAU * 0.85 + yF * TAU * 0.62 - t * 0.41);\n" +
+          "  turb *= 0.5 + 0.5 * sin(xFlow * TAU * 1.55 + yF * TAU * 0.38 + t * 0.52 + L2 * 5.0);\n" +
+          "  float ripple = 0.78 + 0.22 * turb;\n" +
+          "  float mLow = smoothstep(-0.02, 0.2, y);\n" +
+          "  float wf = x * TAU;\n" +
+          "  float wf2 = y * TAU * 1.05 + xFlow * TAU * 0.62;\n" +
+          "  float blobSlow = fbm(vec2(t * 0.035, 2.5));\n" +
+          "  float topWave = 0.038 * sin(wf * 2.0 - t * 0.82 + blobSlow * 2.0) + 0.03 * sin(wf2 * 1.7 - t * 0.55 + fbm(vec2(t * 0.07, x * 2.2)) * 3.0) + 0.024 * sin(wf * 4.3 + t * 0.62 + angC);\n" +
+          "  float topScroll = fbm(vec2(xFlow * 3.2 + t * 0.16, t * 0.12 + 2.0)) * 0.036;\n" +
+          "  float yW = y + topWave + topScroll + fbm(vec2(x * 15.0 + t * 0.2, y * 3.5 + t * 0.24)) * 0.028 * smoothstep(0.35, 0.98, y);\n" +
+          "  float topBandShift = 0.026 * sin(wf * 1.6 + t * 0.5) * fbm(vec2(wf * 0.3, t * 0.04));\n" +
+          "  float z0 = 0.08 + topBandShift;\n" +
+          "  float zenK = 1.72 + 0.35 * sin(t * 0.21 + wf * 0.1);\n" +
+          "  float mHigh = exp(-pow(max(0.0, yW - z0) * zenK, 1.08));\n" +
+          "  mHigh = pow(clamp(mHigh, 0.0, 1.0), 0.95);\n" +
+          "  float mHighSoft = exp(-pow(max(0.0, yW - z0 + 0.08) * (zenK * 0.72), 0.98));\n" +
+          "  mHighSoft = pow(clamp(mHighSoft, 0.0, 1.0), 0.82);\n" +
+          "  float hMask = mLow * mHigh;\n" +
+          "  float hMaskHalo = mLow * mHighSoft;\n" +
+          "  float topDimFall = 1.0 - exp(-max(0.0, yW - 0.32) * 2.4);\n" +
+          "  float topDim = mix(1.0, 0.82, pow(topDimFall, 1.05));\n" +
+          "  topDim *= 0.88 + 0.12 * (0.5 + 0.5 * sin(wf2 * 2.1 + t * 0.58));\n" +
+          "  float I = fluid * ripple * hMask * topDim;\n" +
+          "  float mist = pow(max(0.0, L4 - 0.15), 1.35) * 0.45 + pow(max(0.0, 0.55 - abs(L1 - 0.5)), 2.0) * 0.25;\n" +
+          "  I += mist * hMaskHalo * topDim * (0.55 + 0.45 * breath);\n" +
+          "  I = pow(clamp(I, 0.0, 1.0), 0.88);\n" +
+          "  float cu = fbm(q * 1.25 + vec2(90.0, 10.0) + t * 0.038);\n" +
+          "  float cv = fbm(q * 1.7 + vec2(-20.0, 80.0) - t * 0.032);\n" +
+          "  float cw = fbm(q * 2.2 + vec2(t * 0.04, 50.0));\n" +
+          "  vec3 cG = vec3(0.18, 1.0, 0.32);\n" +
+          "  vec3 cC = vec3(0.08, 0.62, 0.92);\n" +
+          "  vec3 cM = vec3(0.82, 0.22, 0.98);\n" +
+          "  vec3 cB = vec3(0.12, 0.32, 0.88);\n" +
+          "  vec3 aur = mix(mix(cG, cC, smoothstep(0.1, 0.9, cu)), mix(cM, cB, smoothstep(0.15, 0.85, cv)), smoothstep(0.2, 0.8, cw + L3 * 0.25));\n" +
+          "  aur = mix(aur, cC, smoothstep(0.35, 0.75, L2) * 0.35);\n" +
+          "  float edge = smoothstep(0.0, 0.08, x) * smoothstep(1.0, 0.92, x);\n" +
+          "  vec3 glow = aur * I * edge;\n" +
+          "  float diff = pow(fbm(q * 0.58 + t * 0.022), 1.8) * 0.2 * hMaskHalo * topDim;\n" +
+          "  vec3 diffCol = mix(cC * 0.4, cM * 0.35, smoothstep(0.2, 0.8, cu));\n" +
+          "  glow += diffCol * diff * edge * (0.85 + 0.15 * breath);\n" +
+          "  float zenReach = 1.0 - exp(-max(0.0, yW - 0.42) * 2.9);\n" +
+          "  float zenCh = (0.5 + 0.5 * sin(wf * 2.6 - t * 0.82 + yW * 10.0)) * (0.55 + 0.45 * fbm(vec2(xFlow * 1.4 + t * 0.1, y * 5.5 + t * 0.06)));\n" +
+          "  glow += mix(cB * 0.32, cC * 0.28, cv) * zenReach * zenCh * hMaskHalo * edge * (0.055 + 0.04 * breath);\n" +
+          "  return glow;\n" +
+          "}\n" +
+          "vec3 auroraFieldCorona(vec2 uv, float t, float breath) {\n" +
+          "  float x = uv.x;\n" +
+          "  float y = uv.y;\n" +
+          "  float tm = t * 30.0;\n" +
+          "  float ts = t * 0.85;\n" +
+          "  vec2 zen = vec2(0.5 + 0.05 * sin(ts * 0.31), 0.73 + 0.035 * sin(ts * 0.24 + 1.3));\n" +
+          "  vec2 p = uv - zen;\n" +
+          "  vec2 flow = vec2(\n" +
+          "    fbm(p * 2.0 + vec2(tm * 0.17, -tm * 0.11)) - 0.5,\n" +
+          "    fbm(p * 2.0 + vec2(7.3 - tm * 0.13, 3.9 + tm * 0.09)) - 0.5\n" +
+          "  );\n" +
+          "  p += flow * 0.2;\n" +
+          "  float r = length(p);\n" +
+          "  float theta = atan(p.y + 0.0001, p.x);\n" +
+          "  float curtain = 0.0;\n" +
+          "  float edgeBand = 0.0;\n" +
+          "  for (int i = 0; i < 5; i++) {\n" +
+          "    float id = float(i);\n" +
+          "    float seed = 7.1 + id * 11.37;\n" +
+          "    float base = -PI + TAU * hash(vec2(seed, 0.37));\n" +
+          "    float driftA = sin(ts * (0.26 + 0.06 * id) + seed);\n" +
+          "    float driftB = (fbm(vec2(ts * 0.14 + seed, 2.0 + id)) - 0.5) * 1.2;\n" +
+          "    float a = base + 0.9 * driftA + 0.6 * driftB;\n" +
+          "    float dist = abs(atan(sin(theta - a), cos(theta - a)));\n" +
+          "    float w = 0.16 + 0.09 * fbm(vec2(seed, ts * 0.17 + r * 0.6));\n" +
+          "    float lobe = 1.0 - smoothstep(w, w * 1.85, dist);\n" +
+          "    float r0 = 0.08 + 0.03 * id + 0.03 * fbm(vec2(seed * 0.7, ts * 0.12));\n" +
+          "    float r1 = 0.56 + 0.1 * sin(ts * (0.21 + 0.04 * id) + seed);\n" +
+          "    float radial = smoothstep(r0, r0 + 0.08, r) * (1.0 - smoothstep(r1, r1 + 0.16, r));\n" +
+          "    float amp = 0.55 + 0.55 * fbm(vec2(seed * 0.31 + theta * 2.0, ts * 0.19));\n" +
+          "    curtain += lobe * radial * amp;\n" +
+          "    float rb = 0.24 + 0.19 * id * 0.22 + 0.06 * sin(theta * (5.0 + id) + tm * (0.33 + id * 0.04));\n" +
+          "    float bw = 0.018 + 0.04 * fbm(vec2(seed + theta * 2.1, ts * 0.21));\n" +
+          "    float band = smoothstep(rb - bw, rb, r) * (1.0 - smoothstep(rb + 0.01, rb + bw * 2.0, r));\n" +
+          "    edgeBand += band * lobe;\n" +
+          "  }\n" +
+          "  curtain = clamp(curtain / 2.2, 0.0, 1.4);\n" +
+          "  edgeBand = clamp(edgeBand / 2.0, 0.0, 1.0);\n" +
+          "  float fold = 0.6 + 0.4 * (0.5 + 0.5 * sin(theta * (72.0 + 8.0 * sin(ts * 0.23)) + r * 28.0 - tm * 1.35 + flow.x * 8.0));\n" +
+          "  float patternGate = smoothstep(0.34, 0.72, fbm(vec2(ts * 0.11, 1.7)));\n" +
+          "  float ordered = curtain * fold;\n" +
+          "  float chaotic = curtain * (0.35 + 0.65 * fbm(vec2(theta * 11.0 + tm * 0.62, r * 6.8 - ts * 0.31)));\n" +
+          "  float pattern = mix(ordered, chaotic, patternGate);\n" +
+          "  float alive = smoothstep(0.2, 0.82, fbm(vec2(theta * 4.5 + ts * 0.23, r * 2.2 - ts * 0.17)));\n" +
+          "  float vanish = 1.0 - smoothstep(0.6, 0.93, fbm(vec2(theta * 6.0 - ts * 0.28, r * 1.7 + 4.3)));\n" +
+          "  float merge = 0.5 + 0.5 * sin(theta * (4.0 + 2.2 * fbm(vec2(ts * 0.07, 2.9))) + tm * 0.55);\n" +
+          "  float widthBreath = 0.82 + 0.32 * merge;\n" +
+          "  float mLow = smoothstep(-0.02, 0.16, y);\n" +
+          "  float I = pattern * alive * vanish * widthBreath * mLow;\n" +
+          "  I *= 0.72 + 0.28 * breath;\n" +
+          "  I *= 0.85 + edgeBand * (0.45 + 0.35 * (1.0 - patternGate));\n" +
+          "  I = pow(clamp(I, 0.0, 1.0), 0.8);\n" +
+          "  float patchA = fbm(vec2(theta * 3.1 + tm * 0.41, r * 4.0 - tm * 0.29));\n" +
+          "  float patchB = fbm(vec2(theta * 1.6 - tm * 0.33, r * 2.6 + ts * 0.19));\n" +
+          "  float bright = 0.2 + 0.8 * smoothstep(0.12, 0.78, 0.6 * patchA + 0.4 * patchB);\n" +
+          "  vec3 cG = vec3(0.22, 1.0, 0.38);\n" +
+          "  vec3 cC = vec3(0.1, 0.72, 0.95);\n" +
+          "  vec3 cP = vec3(0.72, 0.18, 0.96);\n" +
+          "  vec3 cM = vec3(0.85, 0.32, 0.72);\n" +
+          "  float colorR = r + 0.08 * patchA - 0.06 * patchB;\n" +
+          "  vec3 aur = mix(cG, cC, smoothstep(0.04, 0.24, colorR));\n" +
+          "  aur = mix(aur, cP, smoothstep(0.2, 0.48, colorR));\n" +
+          "  aur = mix(aur, cM, smoothstep(0.46, 0.76, colorR) * 0.5);\n" +
+          "  float colorShift = fbm(vec2(theta * 2.3 + tm * 0.09, ts * 0.13 + 5.1));\n" +
+          "  aur = mix(aur, mix(cG, cP, colorShift), 0.18);\n" +
+          "  float edgeLR = smoothstep(0.0, 0.06, x) * smoothstep(1.0, 0.94, x);\n" +
+          "  vec3 glow = aur * I * bright * edgeLR;\n" +
+          "  float haze = pow(max(0.0, pattern * bright), 1.55) * 0.12;\n" +
+          "  glow += mix(cC * 0.4, cP * 0.3, colorShift) * haze * mLow * edgeLR;\n" +
+          "  return glow;\n" +
+          "}\n" +
+          "vec3 auroraField(vec2 uv, float t, float breath, float md) {\n" +
+          "  if (md < 0.5) return auroraFieldFluid(uv, t, breath);\n" +
+          "  return auroraFieldCorona(uv, t, breath);\n" +
+          "}\n" +
+          "void main() {\n" +
+          "  float t = u_time * (0.000078 * mix(1.0, 0.028, u_rm));\n" +
+          "  float x = v_uv.x;\n" +
+          "  float y = v_uv.y;\n" +
+          "  float breath = 0.5 + 0.5 * sin(u_time * 0.00038);\n" +
+          "  vec3 skyLo = vec3(0.012, 0.016, 0.045);\n" +
+          "  vec3 skyHi = vec3(0.022, 0.015, 0.082);\n" +
+          "  vec3 sky = mix(skyLo, skyHi, smoothstep(0.0, 1.0, x) * 0.5 + y * 0.5);\n" +
+          "  sky += vec3(0.004, 0.006, 0.014) * pow(y, 2.8) * 0.55;\n" +
+          "  vec3 glow = auroraField(v_uv, t, breath, u_mode);\n" +
+          "  vec3 outRgb = sky + glow * 1.04;\n" +
+          "  float lowFog = exp(-y * 3.2) * (0.09 + 0.05 * fbm(vec2(x * 3.2 + t * 0.04, 2.1)));\n" +
+          "  outRgb += vec3(0.08, 0.22, 0.26) * lowFog;\n" +
+          "  float depthShade = 1.0 - smoothstep(0.0, 0.42, y);\n" +
+          "  outRgb *= 1.0 - 0.18 * depthShade;\n" +
+          "  float flowVeil = (1.0 - u_rm) * smoothstep(0.24, 0.96, y) * (1.0 - smoothstep(0.9, 1.0, y));\n" +
+          "  outRgb += vec3(0.18, 0.34, 0.62) * flowVeil * 0.04 * breath;\n" +
+          "  outRgb = pow(clamp(outRgb, 0.0, 1.0), vec3(0.95));\n" +
+          "  float lum = dot(outRgb, vec3(0.2126, 0.7152, 0.0722));\n" +
+          "  outRgb = mix(vec3(lum), outRgb, 1.34);\n" +
+          "  outRgb = (outRgb - 0.5) * 1.2 + 0.5;\n" +
+          "  outRgb *= 1.05;\n" +
+          "  fragColor = vec4(clamp(outRgb, 0.0, 1.0), 1.0);\n" +
+          "}\n";
+
+        function compileShader(type, src) {
+          var s = gl.createShader(type);
+          gl.shaderSource(s, src);
+          gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+            console.warn(gl.getShaderInfoLog(s));
+            gl.deleteShader(s);
+            return null;
+          }
+          return s;
+        }
+
+        function linkProgramGL(vsSrc, fsSrc) {
+          var vs = compileShader(gl.VERTEX_SHADER, vsSrc);
+          var fs = compileShader(gl.FRAGMENT_SHADER, fsSrc);
+          if (!vs || !fs) return null;
+          var p = gl.createProgram();
+          gl.attachShader(p, vs);
+          gl.attachShader(p, fs);
+          gl.linkProgram(p);
+          gl.deleteShader(vs);
+          gl.deleteShader(fs);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+            console.warn(gl.getProgramInfoLog(p));
+            gl.deleteProgram(p);
+            return null;
+          }
+          return p;
+        }
+
+        function initWebGL() {
+          gl = canvas.getContext("webgl2", {
+            alpha: false,
+            antialias: false,
+            depth: false,
+            stencil: false,
+            premultipliedAlpha: true,
+            powerPreference: "high-performance",
+            preserveDrawingBuffer: true,
+            /* desynchronized: true 는 디스플레이/합성과 어긋나 티어·플리커를 유발하는 경우가 많음 */
+          });
+          if (!gl) return false;
+          prog = linkProgramGL(VS_SRC, FS_SRC);
+          if (!prog) return false;
+          uLoc.time = gl.getUniformLocation(prog, "u_time");
+          uLoc.rm = gl.getUniformLocation(prog, "u_rm");
+          uLoc.mode = gl.getUniformLocation(prog, "u_mode");
+          buf = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+          var loc = gl.getAttribLocation(prog, "a_pos");
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+          gl.disable(gl.DEPTH_TEST);
+          gl.disable(gl.STENCIL_TEST);
+          return true;
+        }
+
+        function drawAuroraWebGL(t) {
+          gl.useProgram(prog);
+          gl.uniform1f(uLoc.time, t);
+          gl.uniform1f(uLoc.rm, reducedMotion ? 1.0 : 0.0);
+          if (uLoc.mode != null) gl.uniform1f(uLoc.mode, auroraMode);
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.clearColor(0.02, 0.02, 0.04, 1);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+
+        function drawAuroraFallback() {
+          if (!fallbackCtx) return;
+          var s = dpr * AURORA_BUFFER_SCALE;
+          fallbackCtx.setTransform(s, 0, 0, s, 0, 0);
+          fallbackCtx.imageSmoothingEnabled = true;
+          var cx = W * 0.5;
+          var cy = H * 0.46;
+          var rx = W * 0.55;
+          var ry = H * 0.5;
+          var g;
+          if (auroraMode >= 0.5) {
+            g = fallbackCtx.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.08, cx, cy, Math.max(rx, ry) * 1.05);
+            g.addColorStop(0, "hsl(230, 45%, 3%)");
+            g.addColorStop(0.35, "hsl(175, 38%, 8%)");
+            g.addColorStop(0.62, "hsl(200, 42%, 7%)");
+            g.addColorStop(1, "hsl(275, 40%, 5%)");
+          } else {
+            g = fallbackCtx.createLinearGradient(0, 0, W, 0);
+            g.addColorStop(0, "hsl(220, 52%, 4%)");
+            g.addColorStop(0.42, "hsl(252, 46%, 4.5%)");
+            g.addColorStop(1, "hsl(288, 50%, 5%)");
+          }
+          fallbackCtx.fillStyle = g;
+          fallbackCtx.fillRect(0, 0, W, H);
+        }
+
+        var sctx = sCanvas.getContext("2d", { alpha: true });
+        var dpr = 1;
+        var W = 0;
+        var H = 0;
+        var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var rafId = 0;
+        var resizeRaf = 0;
+        var frozen = false;
+        var stars = [];
+
+        function mulberry32(a) {
+          return function () {
+            var t = (a += 0x6d2b79f5);
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+        }
+
+        function initStars() {
+          var rnd = mulberry32(0x9e3779b9 ^ (W | 0) ^ (H << 16));
+          stars = [];
+          var cap = Math.min(320, Math.max(80, Math.floor((W * H) / 7000)));
+          var k = 0;
+          for (; k < cap; k++) {
+            stars.push({
+              x: rnd() * W,
+              y: rnd() * H * 0.96,
+              r: rnd() * 1.15 + 0.3,
+              phase: rnd() * Math.PI * 2,
+              speed: 0.00025 + rnd() * 0.00055,
+              base: 0.28 + rnd() * 0.38,
+              amp: 0.18 + rnd() * 0.42,
+              slow: 0.3 + rnd() * 0.7,
+            });
+          }
+        }
+
+        function resize() {
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          W = window.innerWidth;
+          H = window.innerHeight;
+          var auroraPx = dpr * AURORA_BUFFER_SCALE;
+          canvas.width = Math.max(1, Math.floor(W * auroraPx));
+          canvas.height = Math.max(1, Math.floor(H * auroraPx));
+          canvas.style.width = W + "px";
+          canvas.style.height = H + "px";
+          sCanvas.width = Math.floor(W * dpr);
+          sCanvas.height = Math.floor(H * dpr);
+          sCanvas.style.width = W + "px";
+          sCanvas.style.height = H + "px";
+          initStars();
+          if (webglReady && gl && prog && buf) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            var aloc = gl.getAttribLocation(prog, "a_pos");
+            if (aloc >= 0) {
+              gl.enableVertexAttribArray(aloc);
+              gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
+            }
+          }
+        }
+
+        function drawAurora(t) {
+          if (webglReady) drawAuroraWebGL(t);
+          else drawAuroraFallback();
+        }
+
+        function drawStars(t) {
+          sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          sctx.clearRect(0, 0, W, H);
+          var k = 0;
+          var len = stars.length;
+          sctx.globalCompositeOperation = "screen";
+          for (; k < len; k++) {
+            var st = stars[k];
+            var tw;
+            if (reducedMotion) {
+              tw = st.base;
+            } else {
+              tw =
+                st.base +
+                st.amp *
+                  (st.slow * Math.sin(t * st.speed + st.phase) +
+                    (1 - st.slow) * 0.35 * Math.sin(t * st.speed * 2.17 + st.phase * 1.3));
+            }
+            tw = Math.max(0.08, Math.min(1, tw));
+            sctx.fillStyle = "rgba(255,255,255," + tw + ")";
+            sctx.beginPath();
+            sctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+            sctx.fill();
+          }
+          sctx.globalCompositeOperation = "source-over";
+        }
+
+        function frame(t) {
+          if (!frozen) {
+            drawAurora(t);
+            drawStars(t);
+          }
+        }
+
+        /** 모드 전환·접근성(reduce motion) 시에도 캔버스가 한 프레임 갱신되도록 */
+        function repaintAuroraAndStars() {
+          var t = performance.now();
+          drawAurora(t);
+          drawStars(t);
+        }
+
+        function tick(t) {
+          frame(t);
+          if (!reducedMotion) rafId = requestAnimationFrame(tick);
+        }
+
+        resize();
+        webglReady = initWebGL();
+        if (!webglReady) fallbackCtx = canvas.getContext("2d", { alpha: false });
+
+        frame(0);
+
+        if (reducedMotion) {
+          frozen = true;
+        } else {
+          rafId = requestAnimationFrame(tick);
+        }
+
+        function scheduleResize() {
+          if (resizeRaf) cancelAnimationFrame(resizeRaf);
+          resizeRaf = requestAnimationFrame(function () {
+            resizeRaf = 0;
+            resize();
+            frame(reducedMotion ? 0 : performance.now());
+          });
+        }
+
+        window.addEventListener("resize", scheduleResize, { passive: true });
+
+        var btnFluid = document.getElementById("btn-aurora-fluid");
+        var btnCorona = document.getElementById("btn-aurora-corona");
+        function syncModeButtons() {
+          if (btnFluid) btnFluid.setAttribute("aria-pressed", auroraMode < 0.5 ? "true" : "false");
+          if (btnCorona) btnCorona.setAttribute("aria-pressed", auroraMode >= 0.5 ? "true" : "false");
+        }
+        function setAuroraMode(m) {
+          auroraMode = m;
+          try {
+            localStorage.setItem(STORAGE_MODE, m < 0.5 ? "0" : "1");
+          } catch (e) {}
+          syncModeButtons();
+          repaintAuroraAndStars();
+        }
+        if (btnFluid) {
+          btnFluid.addEventListener("click", function () {
+            setAuroraMode(0.0);
+          });
+        }
+        if (btnCorona) {
+          btnCorona.addEventListener("click", function () {
+            setAuroraMode(1.0);
+          });
+        }
+        syncModeButtons();
+      })();
+    </script>
+  </body>
+</html>
