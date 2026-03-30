@@ -48,11 +48,23 @@
       .aurora-stage {
         position: fixed;
         inset: 0;
-        z-index: 1;
+        z-index: 2;
         overflow: hidden;
         background: var(--bg-deep);
         /* 합성 스택 고정 — backdrop-filter·캔버스 갱신 시 깜빡임 완화 */
         isolation: isolate;
+      }
+
+      #milky-canvas {
+        display: block;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        pointer-events: none;
+        opacity: 0;
+        will-change: opacity;
       }
 
       #aurora-canvas {
@@ -302,6 +314,7 @@
   </head>
   <body>
     <div class="space" aria-hidden="true"></div>
+    <canvas id="milky-canvas" aria-hidden="true" role="presentation"></canvas>
 
     <div class="aurora-stage" aria-hidden="true">
       <canvas id="aurora-canvas" role="presentation"></canvas>
@@ -364,6 +377,8 @@
         <p>하단에 가까울수록 레이어의 실가시 영역이 줄어들고, 화면 밖 구간은 그리지 않아 성능 이득이 발생합니다.</p>
         <div class="card"><strong>테스트 포인트 04:</strong> 최하단 — 오로라가 완전히 사라지는지 확인</div>
         <p>맨 아래에서는 오로라 레이어가 0에 가까워져 사실상 보이지 않아야 합니다.</p>
+        <div class="card"><strong>테스트 포인트 05:</strong> 추가 스크롤 구간 — 은하수가 등장하는지 확인</div>
+        <p>오로라가 사라진 뒤 스크롤을 더 내리면 은하수 밴드와 성운 느낌의 레이어가 점차 나타나야 합니다.</p>
         <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
         <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
         <p>이 문단은 스크롤 길이를 늘리기 위한 더미 텍스트입니다. 실제 서비스에서는 기능 소개, FAQ, 카드 리스트 등을 배치하면 됩니다.</p>
@@ -383,12 +398,13 @@
       (function () {
         var canvas = document.getElementById("aurora-canvas");
         var sCanvas = document.getElementById("stars-canvas");
+        var mCanvas = document.getElementById("milky-canvas");
         var auroraStageEl = document.querySelector(".aurora-stage");
         var scrimEl = document.querySelector(".video-scrim");
         var grainEl = document.querySelector(".grain");
         var vignetteEl = document.querySelector(".vignette");
         /* 일부 환경에서 과도한 초기 return으로 배경 초기화가 건너뛰는 문제 방지 */
-        if (!canvas || !sCanvas || !auroraStageEl || !scrimEl || !grainEl || !vignetteEl) return;
+        if (!canvas || !sCanvas || !mCanvas || !auroraStageEl || !scrimEl || !grainEl || !vignetteEl) return;
 
         function getQualityPreset(tier, reducedMotionFlag) {
           var safeTier = reducedMotionFlag ? "low" : tier;
@@ -709,6 +725,7 @@
         }
 
         var sctx = sCanvas.getContext("2d", { alpha: true });
+        var mctx = mCanvas.getContext("2d", { alpha: true });
         var dpr = 1;
         var W = 0;
         var H = 0;
@@ -716,11 +733,17 @@
         var rafId = 0;
         var resizeRaf = 0;
         var frozen = false;
+        var pageVisible = !document.hidden;
+        var simTimeMs = 0;
+        var lastTickTs = 0;
         var stars = [];
         var brightStars = [];
+        var milkyStars = [];
         var brightSprite = null;
         var brightFlareSprite = null;
+        var milkyVisible = 0;
         var lastStarsDrawAt = -1;
+        var lastMilkyDrawAt = -1;
         var scrollYPos = 0;
         var layerOffsetY = 0;
         var auroraVisibleRatio = 1;
@@ -760,6 +783,10 @@
           layerOffsetY = -scrollYPos;
           auroraVisibleRatio = Math.max(0, Math.min(1, 1 - scrollYPos / Math.max(1, H)));
           auroraHidden = auroraVisibleRatio <= 0.02;
+          var revealStart = H * 1.25;
+          var revealEnd = H * 2.2;
+          milkyVisible = Math.max(0, Math.min(1, (scrollYPos - revealStart) / Math.max(1, revealEnd - revealStart)));
+          mCanvas.style.opacity = milkyVisible.toFixed(3);
         }
 
         function applyLayerTransforms() {
@@ -784,6 +811,10 @@
           var starPx = dpr * STAR_BUFFER_SCALE;
           sctx.setTransform(starPx, 0, 0, starPx, 0, 0);
           sctx.clearRect(0, 0, W, H);
+          if (mctx) {
+            mctx.setTransform(starPx, 0, 0, starPx, 0, 0);
+            mctx.clearRect(0, 0, W, H);
+          }
         }
 
         function mulberry32(a) {
@@ -851,6 +882,27 @@
           }
         }
 
+        function initMilky() {
+          var rnd = mulberry32(0x85ebca6b ^ (W | 0) ^ (H << 16));
+          milkyStars = [];
+          var count = Math.min(1500, Math.max(520, Math.floor((W * H) / 4500)));
+          for (var i = 0; i < count; i++) {
+            var u = rnd();
+            var v = rnd();
+            var curve = 0.52 + 0.26 * Math.sin((u - 0.5) * 4.8 + rnd() * 0.8);
+            var spread = 0.018 + 0.14 * Math.pow(rnd(), 1.7);
+            var y = (curve + (v - 0.5) * spread) * H;
+            milkyStars.push({
+              x: u * W,
+              y: y,
+              r: 0.35 + rnd() * 1.35,
+              a: 0.08 + rnd() * 0.72,
+              p: rnd() * Math.PI * 2,
+              s: 0.00012 + rnd() * 0.00045,
+            });
+          }
+        }
+
         function resize() {
           dpr = Math.min(window.devicePixelRatio || 1, 2);
           W = window.innerWidth;
@@ -865,9 +917,15 @@
           sCanvas.height = Math.max(1, Math.floor(H * starPx));
           sCanvas.style.width = W + "px";
           sCanvas.style.height = H + "px";
+          mCanvas.width = Math.max(1, Math.floor(W * starPx));
+          mCanvas.height = Math.max(1, Math.floor(H * starPx));
+          mCanvas.style.width = W + "px";
+          mCanvas.style.height = H + "px";
           initStarSprites();
           initStars();
+          initMilky();
           lastStarsDrawAt = -1;
+          lastMilkyDrawAt = -1;
           if (webglReady && gl && prog && buf) {
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
             var aloc = gl.getAttribLocation(prog, "a_pos");
@@ -947,28 +1005,96 @@
           sctx.globalCompositeOperation = "source-over";
         }
 
+        function drawMilky(t) {
+          if (!mctx || milkyVisible <= 0.001) return;
+          var starPx = dpr * STAR_BUFFER_SCALE;
+          mctx.setTransform(starPx, 0, 0, starPx, 0, 0);
+          mctx.clearRect(0, 0, W, H);
+          mctx.globalCompositeOperation = "source-over";
+          var g = mctx.createLinearGradient(0, 0, 0, H);
+          g.addColorStop(0, "rgba(6,8,18,0.28)");
+          g.addColorStop(0.5, "rgba(10,11,26,0.48)");
+          g.addColorStop(1, "rgba(3,5,12,0.72)");
+          mctx.fillStyle = g;
+          mctx.fillRect(0, 0, W, H);
+
+          mctx.globalCompositeOperation = "screen";
+          for (var i = 0; i < milkyStars.length; i++) {
+            var st = milkyStars[i];
+            var tw = st.a * (0.68 + 0.32 * Math.sin(t * st.s + st.p));
+            mctx.fillStyle = "rgba(225,235,255," + tw + ")";
+            mctx.beginPath();
+            mctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+            mctx.fill();
+          }
+
+          // 은하수 중심 밴드 글로우
+          var bandX = W * (0.48 + 0.06 * Math.sin(t * 0.00005));
+          var bandY = H * (0.5 + 0.03 * Math.sin(t * 0.00003 + 1.7));
+          var band = mctx.createRadialGradient(bandX, bandY, W * 0.04, bandX, bandY, W * 0.42);
+          band.addColorStop(0, "rgba(245,235,210,0.26)");
+          band.addColorStop(0.26, "rgba(185,195,255,0.19)");
+          band.addColorStop(0.58, "rgba(120,140,220,0.10)");
+          band.addColorStop(1, "rgba(40,55,120,0)");
+          mctx.fillStyle = band;
+          mctx.fillRect(0, 0, W, H);
+
+          var dust = mctx.createLinearGradient(0, H * 0.2, W, H * 0.8);
+          dust.addColorStop(0, "rgba(26,18,20,0)");
+          dust.addColorStop(0.45, "rgba(38,24,26,0.20)");
+          dust.addColorStop(0.55, "rgba(28,18,22,0.28)");
+          dust.addColorStop(1, "rgba(24,18,20,0)");
+          mctx.fillStyle = dust;
+          mctx.fillRect(0, 0, W, H);
+          mctx.globalCompositeOperation = "source-over";
+        }
+
         function frame(t) {
           if (frozen) return;
-          if (auroraHidden) {
+          var drawAuroraStars = !auroraHidden;
+          var drawMilkyLayer = milkyVisible > 0.001;
+
+          if (!drawAuroraStars && !drawMilkyLayer) {
             if (!layersCleared) {
               clearRenderLayers();
               layersCleared = true;
             }
             return;
           }
+
           layersCleared = false;
-          drawAurora(t);
-          var intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
-          var starInterval = STAR_FRAME_INTERVAL_MS * intervalScale;
-          if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= starInterval) {
-            drawStars(t);
-            lastStarsDrawAt = t;
+          if (drawAuroraStars) {
+            drawAurora(t);
+            var intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
+            var starInterval = STAR_FRAME_INTERVAL_MS * intervalScale;
+            if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= starInterval) {
+              drawStars(t);
+              lastStarsDrawAt = t;
+            }
+          }
+          if (drawMilkyLayer) {
+            var milkyInterval = STAR_FRAME_INTERVAL_MS * 1.2;
+            if (lastMilkyDrawAt < 0 || t - lastMilkyDrawAt >= milkyInterval) {
+              drawMilky(t);
+              lastMilkyDrawAt = t;
+            }
           }
         }
 
         function tick(t) {
-          frame(t);
-          if (!reducedMotion && !auroraHidden) rafId = requestAnimationFrame(tick);
+          if (!pageVisible) {
+            rafId = 0;
+            return;
+          }
+          if (!lastTickTs) lastTickTs = t;
+          var dt = t - lastTickTs;
+          lastTickTs = t;
+          if (!isFinite(dt) || dt < 0) dt = 16.67;
+          // 백그라운드 복귀 시 큰 dt 점프를 잘라 급가속/점프를 방지
+          dt = Math.min(dt, 50);
+          simTimeMs += dt;
+          frame(simTimeMs);
+          if (!reducedMotion && (!auroraHidden || milkyVisible > 0.001)) rafId = requestAnimationFrame(tick);
           else rafId = 0;
         }
 
@@ -983,12 +1109,13 @@
           resize();
         }
 
-        frame(0);
+        frame(simTimeMs);
         lastStarsDrawAt = 0;
 
         if (reducedMotion) {
           frozen = true;
         } else {
+          lastTickTs = 0;
           rafId = requestAnimationFrame(tick);
         }
 
@@ -997,7 +1124,7 @@
           resizeRaf = requestAnimationFrame(function () {
             resizeRaf = 0;
             resize();
-            frame(reducedMotion ? 0 : performance.now());
+            frame(simTimeMs);
           });
         }
 
@@ -1008,13 +1135,14 @@
             updateScrollNorm();
             applyLayerTransforms();
             if (reducedMotion) {
-              frame(performance.now());
-            } else if (auroraHidden) {
+              frame(simTimeMs);
+            } else if (auroraHidden && milkyVisible <= 0.001) {
               if (rafId) {
                 cancelAnimationFrame(rafId);
                 rafId = 0;
               }
             } else if (!rafId) {
+              lastTickTs = 0;
               rafId = requestAnimationFrame(tick);
             }
           },
@@ -1026,14 +1154,14 @@
           applyQualityProfile(getQualityPreset(adaptiveBaseTier, !!e.matches));
           frozen = !!e.matches;
           resize();
-          var now = performance.now();
-          frame(now);
+          frame(simTimeMs);
           if (frozen) {
             if (rafId) {
               cancelAnimationFrame(rafId);
               rafId = 0;
             }
           } else if (!auroraHidden && !rafId) {
+            lastTickTs = 0;
             rafId = requestAnimationFrame(tick);
           }
         }
@@ -1042,6 +1170,22 @@
         } else if (reducedMotionQuery.addListener) {
           reducedMotionQuery.addListener(onReducedMotionChange);
         }
+
+        document.addEventListener("visibilitychange", function () {
+          pageVisible = !document.hidden;
+          if (!pageVisible) {
+            if (rafId) {
+              cancelAnimationFrame(rafId);
+              rafId = 0;
+            }
+            lastTickTs = 0;
+            return;
+          }
+          if (!reducedMotion && (!auroraHidden || milkyVisible > 0.001) && !rafId) {
+            lastTickTs = 0;
+            rafId = requestAnimationFrame(tick);
+          }
+        });
 
       })();
     </script>
