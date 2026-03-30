@@ -29,3 +29,15 @@ export interface AuroraCoronaBackgroundProps {
   hideWhenScrolledOut?: boolean;
   dimScrim?: boolean;
 }
+
+export interface MilkyWayBackgroundProps {
+  className?: string;
+  style?: React.CSSProperties;
+  zIndex?: number;
+  quality?: AuroraQualityTier | "auto";
+  reducedMotion?: boolean;
+  scrollFollow?: boolean;
+  scrollFollowFactor?: number;
+  hideWhenScrolledOut?: boolean;
+  dimScrim?: boolean;
+}

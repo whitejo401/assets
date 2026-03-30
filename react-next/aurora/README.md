@@ -1,10 +1,14 @@
 # AuroraCoronaBackground (React/Next.js)
 
-현재 `index.html`에서 만든 코로나 커튼 오로라 + 빛나는 별 배경을 다른 프로젝트에서 바로 재사용할 수 있도록 컴포넌트화한 버전입니다.
+현재 `index.html`에서 만든 배경 이펙트를 다른 프로젝트에서 바로 재사용할 수 있도록 컴포넌트화한 버전입니다.
+
+- `AuroraCoronaBackground`: 코로나 커튼 오로라 + 별
+- `MilkyWayBackground`: 워프형(원근) 은하수 + 성운
 
 ## 파일 구성
 
 - `react-next/aurora/AuroraCoronaBackground.tsx`
+- `react-next/aurora/MilkyWayBackground.tsx`
 - `react-next/aurora/useAdaptiveQuality.ts`
 - `react-next/aurora/types.ts`
 - `react-next/aurora/index.ts`
@@ -37,6 +41,31 @@ export default function HeroPage() {
 }
 ```
 
+## 은하수 컴포넌트 사용
+
+```tsx
+"use client";
+
+import { MilkyWayBackground } from "@/components/aurora";
+
+export default function GalaxySection() {
+  return (
+    <>
+      <MilkyWayBackground
+        quality="auto"
+        scrollFollow
+        scrollFollowFactor={1}
+        hideWhenScrolledOut
+        zIndex={0}
+      />
+      <main style={{ position: "relative", zIndex: 1 }}>
+        {/* 콘텐츠 */}
+      </main>
+    </>
+  );
+}
+```
+
 ## Props
 
 - `quality`: `"auto" | "low" | "medium" | "high"`
@@ -46,6 +75,8 @@ export default function HeroPage() {
 - `hideWhenScrolledOut`: 화면 밖으로 나가면 렌더 중단
 - `dimScrim`: 어두운 스크림 오버레이 사용 여부
 - `zIndex`, `className`, `style`
+
+`MilkyWayBackground`도 동일한 Props를 사용합니다.
 
 ## 통합 팁
 

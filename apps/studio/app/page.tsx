@@ -1,11 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AuroraCoronaBackground, type AuroraQualityTier } from "aurora-corona-background";
+import {
+  AuroraCoronaBackground,
+  MilkyWayBackground,
+  type AuroraQualityTier,
+} from "aurora-corona-background";
 
 type QualityOption = AuroraQualityTier | "auto";
+type BackgroundMode = "aurora" | "milky";
 
 export default function StudioPage() {
+  const [mode, setMode] = useState<BackgroundMode>("aurora");
   const [quality, setQuality] = useState<QualityOption>("auto");
   const [scrollFollow, setScrollFollow] = useState(true);
   const [hideWhenOut, setHideWhenOut] = useState(true);
@@ -13,25 +19,44 @@ export default function StudioPage() {
   const [factor, setFactor] = useState(1);
 
   const subtitle = useMemo(() => {
-    return `quality=${quality} / scrollFollow=${scrollFollow} / factor=${factor.toFixed(2)}`;
-  }, [quality, scrollFollow, factor]);
+    return `mode=${mode} / quality=${quality} / scrollFollow=${scrollFollow} / factor=${factor.toFixed(2)}`;
+  }, [mode, quality, scrollFollow, factor]);
 
   return (
     <>
-      <AuroraCoronaBackground
-        quality={quality}
-        scrollFollow={scrollFollow}
-        hideWhenScrolledOut={hideWhenOut}
-        scrollFollowFactor={factor}
-        dimScrim={dimScrim}
-        zIndex={0}
-      />
+      {mode === "aurora" ? (
+        <AuroraCoronaBackground
+          quality={quality}
+          scrollFollow={scrollFollow}
+          hideWhenScrolledOut={hideWhenOut}
+          scrollFollowFactor={factor}
+          dimScrim={dimScrim}
+          zIndex={0}
+        />
+      ) : (
+        <MilkyWayBackground
+          quality={quality}
+          scrollFollow={scrollFollow}
+          hideWhenScrolledOut={hideWhenOut}
+          scrollFollowFactor={factor}
+          dimScrim={dimScrim}
+          zIndex={0}
+        />
+      )}
       <main>
         <h1>LookGood Asset Studio</h1>
-        <p className="lead">컴포넌트 만들고 바로 테스트하는 로컬 스튜디오</p>
+        <p className="lead">오로라/은하수 컴포넌트를 바로 테스트하는 로컬 스튜디오</p>
         <p className="lead">{subtitle}</p>
 
         <section className="panel">
+          <label>
+            Background
+            <select value={mode} onChange={(e) => setMode(e.target.value as BackgroundMode)}>
+              <option value="aurora">aurora</option>
+              <option value="milky">milky</option>
+            </select>
+          </label>
+
           <label>
             Quality
             <select value={quality} onChange={(e) => setQuality(e.target.value as QualityOption)}>
@@ -74,7 +99,7 @@ export default function StudioPage() {
           <article className="card" key={idx}>
             <strong>Section {idx + 1}</strong>
             <p>
-              이 구간은 스크롤 테스트용 콘텐츠입니다. 오로라와 별이 자연스럽게 이동하는지, 뷰포트 밖으로 나가면 렌더링이
+              이 구간은 스크롤 테스트용 콘텐츠입니다. 선택한 배경이 자연스럽게 이동하는지, 뷰포트 밖으로 나가면 렌더링이
               줄어드는지 확인하세요.
             </p>
           </article>

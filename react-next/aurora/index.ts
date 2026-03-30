@@ -1,4 +1,10 @@
 "use client";
 
 export { AuroraCoronaBackground } from "./AuroraCoronaBackground";
-export type { AuroraCoronaBackgroundProps, AuroraQualityTier, AuroraQualityProfile } from "./types";
+export { MilkyWayBackground } from "./MilkyWayBackground";
+export type {
+  AuroraCoronaBackgroundProps,
+  MilkyWayBackgroundProps,
+  AuroraQualityTier,
+  AuroraQualityProfile,
+} from "./types";

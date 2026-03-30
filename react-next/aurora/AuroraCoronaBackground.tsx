@@ -212,6 +212,8 @@ export function AuroraCoronaBackground({
   const rootRef = useRef<HTMLDivElement>(null);
   const auroraCanvasRef = useRef<HTMLCanvasElement>(null);
   const starsCanvasRef = useRef<HTMLCanvasElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
+  const grainRef = useRef<HTMLDivElement>(null);
 
   const reducedByMedia =
     typeof window !== "undefined" &&
@@ -255,6 +257,16 @@ export function AuroraCoronaBackground({
     let lastStarsDrawAt = -1;
     let layerOffsetY = 0;
     let hiddenByScroll = false;
+    let auroraVisibleRatio = 1;
+    let pageVisible = !document.hidden;
+    let simTimeMs = 0;
+    let lastTickTs = 0;
+
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const smoothstep = (edge0: number, edge1: number, x: number) => {
+      const t = clamp01((x - edge0) / Math.max(1e-6, edge1 - edge0));
+      return t * t * (3 - 2 * t);
+    };
 
     const compileShader = (type: number, src: string) => {
       if (!gl) return null;
@@ -451,37 +463,68 @@ export function AuroraCoronaBackground({
       lastStarsDrawAt = -1;
     };
 
+    const applyLayerVisuals = () => {
+      const aurAlpha = clamp01(Math.pow(auroraVisibleRatio, 1.08));
+      auroraCanvas.style.opacity = aurAlpha.toFixed(3);
+      starsCanvas.style.opacity = (0.16 + 0.84 * aurAlpha).toFixed(3);
+      if (scrimRef.current) {
+        const seamBlend = 1 - aurAlpha;
+        scrimRef.current.style.opacity = (0.88 + seamBlend * 0.34).toFixed(3);
+      }
+      if (grainRef.current) {
+        const seamBlend = 1 - aurAlpha;
+        grainRef.current.style.opacity = (0.032 + seamBlend * 0.018).toFixed(3);
+      }
+    };
+
     const onScroll = () => {
-      if (!scrollFollow) return;
       const y = window.scrollY || window.pageYOffset || 0;
-      layerOffsetY = -y * scrollFollowFactor;
-      root.style.transform = `translate3d(0, ${layerOffsetY.toFixed(2)}px, 0)`;
+      if (scrollFollow) {
+        layerOffsetY = -y * scrollFollowFactor;
+        root.style.transform = `translate3d(0, ${layerOffsetY.toFixed(2)}px, 0)`;
+      }
+      const fadeStart = H * 0.58;
+      const fadeEnd = H * 1.08;
+      auroraVisibleRatio = 1 - smoothstep(fadeStart, fadeEnd, y);
       if (hideWhenScrolledOut) {
-        hiddenByScroll = y >= H;
+        hiddenByScroll = auroraVisibleRatio <= 0.02;
         if (hiddenByScroll) {
           clearLayers();
           if (rafId) {
             cancelAnimationFrame(rafId);
             rafId = 0;
           }
-        } else if (!rafId && !reducedMotion) {
+        } else if (!rafId && !reducedMotion && pageVisible) {
           rafId = requestAnimationFrame(tick);
         }
       }
+      applyLayerVisuals();
     };
 
     const frame = (t: number) => {
       if (hiddenByScroll) return;
       drawAurora(t);
-      if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= profile.starFrameIntervalMs) {
+      const intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
+      const starInterval = profile.starFrameIntervalMs * intervalScale;
+      if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= starInterval) {
         drawStars(t);
         lastStarsDrawAt = t;
       }
     };
 
     const tick = (t: number) => {
-      frame(t);
-      if (!reducedMotion && !hiddenByScroll) {
+      if (!pageVisible) {
+        rafId = 0;
+        return;
+      }
+      if (!lastTickTs) lastTickTs = t;
+      let dt = t - lastTickTs;
+      lastTickTs = t;
+      if (!Number.isFinite(dt) || dt < 0) dt = 16.67;
+      dt = Math.min(dt, 50);
+      simTimeMs += dt;
+      frame(simTimeMs);
+      if (!reducedMotion && !hiddenByScroll && pageVisible) {
         rafId = requestAnimationFrame(tick);
       } else {
         rafId = 0;
@@ -492,8 +535,8 @@ export function AuroraCoronaBackground({
     const webglReady = initWebGL();
     if (!webglReady) fallbackCtx = auroraCanvas.getContext("2d", { alpha: false });
     onScroll();
-    frame(0);
-    if (!reducedMotion && !hiddenByScroll) rafId = requestAnimationFrame(tick);
+    frame(simTimeMs);
+    if (!reducedMotion && !hiddenByScroll && pageVisible) rafId = requestAnimationFrame(tick);
 
     const scheduleResize = () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -501,18 +544,38 @@ export function AuroraCoronaBackground({
         resizeRaf = 0;
         onResize();
         onScroll();
-        frame(performance.now());
+        frame(simTimeMs);
       });
+    };
+
+    const onVisibilityChange = () => {
+      pageVisible = !document.hidden;
+      if (!pageVisible) {
+        lastTickTs = 0;
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+        return;
+      }
+      lastTickTs = 0;
+      if (!reducedMotion && !hiddenByScroll && !rafId) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        frame(simTimeMs);
+      }
     };
 
     window.addEventListener("resize", scheduleResize, { passive: true });
     window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       window.removeEventListener("resize", scheduleResize);
       window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       if (gl && prog) gl.deleteProgram(prog);
       if (gl && buf) gl.deleteBuffer(buf);
     };
@@ -532,9 +595,10 @@ export function AuroraCoronaBackground({
       }}
       aria-hidden
     >
-      <canvas ref={auroraCanvasRef} style={{ ...layerBaseStyle, zIndex: 1 }} />
+      <canvas ref={auroraCanvasRef} style={{ ...layerBaseStyle, zIndex: 1, willChange: "transform, opacity" }} />
       {dimScrim && (
         <div
+          ref={scrimRef}
           style={{
             ...layerBaseStyle,
             zIndex: 2,
@@ -543,8 +607,9 @@ export function AuroraCoronaBackground({
           }}
         />
       )}
-      <canvas ref={starsCanvasRef} style={{ ...layerBaseStyle, zIndex: 3 }} />
+      <canvas ref={starsCanvasRef} style={{ ...layerBaseStyle, zIndex: 3, willChange: "transform, opacity" }} />
       <div
+        ref={grainRef}
         style={{
           ...layerBaseStyle,
           zIndex: 4,
