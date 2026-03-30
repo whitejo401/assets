@@ -202,6 +202,7 @@ export function AuroraCoronaBackground({
   className,
   style,
   zIndex = 1,
+  active = true,
   quality = "auto",
   reducedMotion: reducedMotionOverride,
   scrollFollow = false,
@@ -244,6 +245,8 @@ export function AuroraCoronaBackground({
     let gl: WebGL2RenderingContext | null = null;
     let prog: WebGLProgram | null = null;
     let buf: WebGLBuffer | null = null;
+    let uLocTime: WebGLUniformLocation | null = null;
+    let uLocRm: WebGLUniformLocation | null = null;
     let fallbackCtx: CanvasRenderingContext2D | null = null;
     let rafId = 0;
     let resizeRaf = 0;
@@ -261,6 +264,10 @@ export function AuroraCoronaBackground({
     let pageVisible = !document.hidden;
     let simTimeMs = 0;
     let lastTickTs = 0;
+    let scrollTargetY = 0;
+    let scrollCurrentY = 0;
+    let lastScrollInputAt = 0;
+    let restoreTimer = 0;
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
     const smoothstep = (edge0: number, edge1: number, x: number) => {
@@ -316,6 +323,8 @@ export function AuroraCoronaBackground({
       gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
       gl.disable(gl.DEPTH_TEST);
       gl.disable(gl.STENCIL_TEST);
+      uLocTime = gl.getUniformLocation(prog, "u_time");
+      uLocRm = gl.getUniformLocation(prog, "u_rm");
       return true;
     };
 
@@ -361,10 +370,8 @@ export function AuroraCoronaBackground({
     const drawAurora = (t: number) => {
       if (gl && prog && buf) {
         gl.useProgram(prog);
-        const uTime = gl.getUniformLocation(prog, "u_time");
-        const uRm = gl.getUniformLocation(prog, "u_rm");
-        gl.uniform1f(uTime, t);
-        gl.uniform1f(uRm, reducedMotion ? 1 : 0);
+        if (uLocTime) gl.uniform1f(uLocTime, t);
+        if (uLocRm) gl.uniform1f(uLocRm, reducedMotion ? 1 : 0);
         gl.viewport(0, 0, auroraCanvas.width, auroraCanvas.height);
         gl.bindBuffer(gl.ARRAY_BUFFER, buf);
         gl.clearColor(0.02, 0.02, 0.04, 1);
@@ -461,6 +468,9 @@ export function AuroraCoronaBackground({
       brightFlareSprite = makeStarSprite(profile.flareSpriteSize, 0.55, 0.24);
       initStars();
       lastStarsDrawAt = -1;
+      const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      scrollTargetY = Math.max(0, Math.min(window.scrollY || window.pageYOffset || 0, maxScroll));
+      scrollCurrentY = scrollTargetY;
     };
 
     const applyLayerVisuals = () => {
@@ -477,8 +487,7 @@ export function AuroraCoronaBackground({
       }
     };
 
-    const onScroll = () => {
-      const y = window.scrollY || window.pageYOffset || 0;
+    const applyScrollState = (y: number) => {
       if (scrollFollow) {
         layerOffsetY = -y * scrollFollowFactor;
         root.style.transform = `translate3d(0, ${layerOffsetY.toFixed(2)}px, 0)`;
@@ -486,26 +495,39 @@ export function AuroraCoronaBackground({
       const fadeStart = H * 0.58;
       const fadeEnd = H * 1.08;
       auroraVisibleRatio = 1 - smoothstep(fadeStart, fadeEnd, y);
-      if (hideWhenScrolledOut) {
-        hiddenByScroll = auroraVisibleRatio <= 0.02;
-        if (hiddenByScroll) {
-          clearLayers();
-          if (rafId) {
-            cancelAnimationFrame(rafId);
-            rafId = 0;
-          }
-        } else if (!rafId && !reducedMotion && pageVisible) {
-          rafId = requestAnimationFrame(tick);
-        }
-      }
+      hiddenByScroll = hideWhenScrolledOut ? auroraVisibleRatio <= 0.02 : false;
+      if (hiddenByScroll) clearLayers();
       applyLayerVisuals();
     };
 
-    const frame = (t: number) => {
+    const onScroll = () => {
+      const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+      scrollTargetY = Math.max(0, Math.min(window.scrollY || window.pageYOffset || 0, maxScroll));
+      lastScrollInputAt = performance.now();
+      if (!active) {
+        scrollCurrentY = scrollTargetY;
+        applyScrollState(scrollCurrentY);
+        return;
+      }
+      // 스크롤 이벤트마다 즉시 동기화 + 1회 렌더를 수행해
+      // hidden 상태 진입/해제 전환 시 누락 프레임을 방지한다.
+      scrollCurrentY = scrollTargetY;
+      applyScrollState(scrollCurrentY);
+      frame(simTimeMs, true);
+      ensureTicking();
+    };
+
+    const frame = (t: number, scrollingActive: boolean) => {
+      if (!active) return;
       if (hiddenByScroll) return;
       drawAurora(t);
-      const intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
-      const starInterval = profile.starFrameIntervalMs * intervalScale;
+      let starInterval: number;
+      if (scrollingActive) {
+        starInterval = 16;
+      } else {
+        const intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
+        starInterval = profile.starFrameIntervalMs * intervalScale;
+      }
       if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= starInterval) {
         drawStars(t);
         lastStarsDrawAt = t;
@@ -513,8 +535,8 @@ export function AuroraCoronaBackground({
     };
 
     const tick = (t: number) => {
+      rafId = 0;
       if (!pageVisible) {
-        rafId = 0;
         return;
       }
       if (!lastTickTs) lastTickTs = t;
@@ -523,10 +545,30 @@ export function AuroraCoronaBackground({
       if (!Number.isFinite(dt) || dt < 0) dt = 16.67;
       dt = Math.min(dt, 50);
       simTimeMs += dt;
-      frame(simTimeMs);
-      if (!reducedMotion && !hiddenByScroll && pageVisible) {
-        rafId = requestAnimationFrame(tick);
-      } else {
+      const scrollDelta = scrollTargetY - scrollCurrentY;
+      const inputRecent = t - lastScrollInputAt < 140;
+      const smoothing = 1 - Math.exp(-dt / (inputRecent ? 28 : 75));
+      scrollCurrentY += scrollDelta * smoothing;
+      if (Math.abs(scrollDelta) < 0.05) scrollCurrentY = scrollTargetY;
+      applyScrollState(scrollCurrentY);
+      const scrollingActive = Math.abs(scrollDelta) > 0.12 || inputRecent;
+      frame(simTimeMs, scrollingActive);
+      ensureTicking();
+    };
+
+    const shouldAnimate = () => {
+      const settling = Math.abs(scrollTargetY - scrollCurrentY) > 0.1;
+      return active && !reducedMotion && pageVisible && (settling || !hiddenByScroll);
+    };
+
+    const ensureTicking = () => {
+      if (shouldAnimate()) {
+        if (!rafId) {
+          lastTickTs = 0;
+          rafId = requestAnimationFrame(tick);
+        }
+      } else if (rafId) {
+        cancelAnimationFrame(rafId);
         rafId = 0;
       }
     };
@@ -534,9 +576,15 @@ export function AuroraCoronaBackground({
     onResize();
     const webglReady = initWebGL();
     if (!webglReady) fallbackCtx = auroraCanvas.getContext("2d", { alpha: false });
+    applyScrollState(scrollCurrentY);
     onScroll();
-    frame(simTimeMs);
-    if (!reducedMotion && !hiddenByScroll && pageVisible) rafId = requestAnimationFrame(tick);
+    // 일부 브라우저는 새로고침 직후 스크롤 복원을 늦게 적용하므로
+    // 한 번 더 동기화해 초기 hidden/visible 상태를 보정한다.
+    requestAnimationFrame(onScroll);
+    restoreTimer = window.setTimeout(onScroll, 120);
+    if (active) frame(simTimeMs, false);
+    else clearLayers();
+    ensureTicking();
 
     const scheduleResize = () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -544,7 +592,7 @@ export function AuroraCoronaBackground({
         resizeRaf = 0;
         onResize();
         onScroll();
-        frame(simTimeMs);
+        frame(simTimeMs, true);
       });
     };
 
@@ -558,12 +606,8 @@ export function AuroraCoronaBackground({
         }
         return;
       }
-      lastTickTs = 0;
-      if (!reducedMotion && !hiddenByScroll && !rafId) {
-        rafId = requestAnimationFrame(tick);
-      } else {
-        frame(simTimeMs);
-      }
+      if (active) frame(simTimeMs, true);
+      ensureTicking();
     };
 
     window.addEventListener("resize", scheduleResize, { passive: true });
@@ -573,13 +617,14 @@ export function AuroraCoronaBackground({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      if (restoreTimer) window.clearTimeout(restoreTimer);
       window.removeEventListener("resize", scheduleResize);
       window.removeEventListener("scroll", onScroll);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (gl && prog) gl.deleteProgram(prog);
       if (gl && buf) gl.deleteBuffer(buf);
     };
-  }, [profile, reducedMotion, scrollFollow, scrollFollowFactor, hideWhenScrolledOut]);
+  }, [active, profile, reducedMotion, scrollFollow, scrollFollowFactor, hideWhenScrolledOut]);
 
   return (
     <div

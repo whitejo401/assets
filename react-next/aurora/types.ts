@@ -22,6 +22,7 @@ export interface AuroraCoronaBackgroundProps {
   className?: string;
   style?: React.CSSProperties;
   zIndex?: number;
+  active?: boolean;
   quality?: AuroraQualityTier | "auto";
   reducedMotion?: boolean;
   scrollFollow?: boolean;
@@ -34,6 +35,7 @@ export interface MilkyWayBackgroundProps {
   className?: string;
   style?: React.CSSProperties;
   zIndex?: number;
+  active?: boolean;
   quality?: AuroraQualityTier | "auto";
   reducedMotion?: boolean;
   scrollFollow?: boolean;

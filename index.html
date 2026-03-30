@@ -756,6 +756,9 @@
         var milkyRespawnRnd = null;
         var scrollYPos = 0;
         var layerOffsetY = 0;
+        var scrollTargetY = 0;
+        var scrollCurrentY = 0;
+        var lastScrollInputAt = 0;
         var auroraVisibleRatio = 1;
         var auroraHidden = false;
         var layersCleared = false;
@@ -796,9 +799,9 @@
           return true;
         }
 
-        function updateScrollNorm() {
+        function updateScrollNorm(inputY) {
           var maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
-          var y = window.scrollY || window.pageYOffset || 0;
+          var y = typeof inputY === "number" ? inputY : scrollCurrentY;
           scrollYPos = Math.max(0, Math.min(y, maxScroll));
           // 텍스트와 거의 비슷하게 따라가되, 미세한 감쇠로 경계 노출 타이밍 완화
           layerOffsetY = -(scrollYPos * scrollFollowFactor);
@@ -814,6 +817,12 @@
           var revealEnd = H * 1.95;
           milkyVisible = smoothstep(revealStart, revealEnd, scrollYPos);
           mCanvas.style.opacity = milkyVisible.toFixed(3);
+        }
+
+        function updateScrollTargetFromWindow() {
+          var maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+          var y = window.scrollY || window.pageYOffset || 0;
+          scrollTargetY = Math.max(0, Math.min(y, maxScroll));
         }
 
         function applyLayerTransforms() {
@@ -1268,7 +1277,7 @@
           mctx.globalCompositeOperation = "source-over";
         }
 
-        function frame(t) {
+        function frame(t, scrollingActive) {
           if (frozen) return;
           var drawAuroraStars = !auroraHidden;
           var drawMilkyLayer = milkyVisible > 0.001;
@@ -1284,8 +1293,13 @@
           layersCleared = false;
           if (drawAuroraStars) {
             drawAurora(t);
-            var intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
-            var starInterval = STAR_FRAME_INTERVAL_MS * intervalScale;
+            var starInterval;
+            if (scrollingActive) {
+              starInterval = 16;
+            } else {
+              var intervalScale = 1 + (1 - auroraVisibleRatio) * 1.25;
+              starInterval = STAR_FRAME_INTERVAL_MS * intervalScale;
+            }
             if (lastStarsDrawAt < 0 || t - lastStarsDrawAt >= starInterval) {
               drawStars(t);
               lastStarsDrawAt = t;
@@ -1313,8 +1327,17 @@
           // 백그라운드 복귀 시 큰 dt 점프를 잘라 급가속/점프를 방지
           dt = Math.min(dt, 50);
           simTimeMs += dt;
-          frame(simTimeMs);
-          if (!reducedMotion && (!auroraHidden || milkyVisible > 0.001)) rafId = requestAnimationFrame(tick);
+          var scrollDelta = scrollTargetY - scrollCurrentY;
+          var inputRecent = t - lastScrollInputAt < 140;
+          var smoothing = 1 - Math.exp(-dt / (inputRecent ? 28 : 75));
+          scrollCurrentY += scrollDelta * smoothing;
+          if (Math.abs(scrollDelta) < 0.05) scrollCurrentY = scrollTargetY;
+          updateScrollNorm(scrollCurrentY);
+          applyLayerTransforms();
+          var scrollingActive = Math.abs(scrollDelta) > 0.12 || inputRecent;
+          frame(simTimeMs, scrollingActive);
+          var settling = Math.abs(scrollTargetY - scrollCurrentY) > 0.1;
+          if (!reducedMotion && (settling || !auroraHidden || milkyVisible > 0.001)) rafId = requestAnimationFrame(tick);
           else rafId = 0;
         }
 
@@ -1329,8 +1352,12 @@
           resize();
         }
 
-        frame(simTimeMs);
+        frame(simTimeMs, false);
         lastStarsDrawAt = 0;
+        updateScrollTargetFromWindow();
+        scrollCurrentY = scrollTargetY;
+        updateScrollNorm(scrollCurrentY);
+        applyLayerTransforms();
 
         if (reducedMotion) {
           frozen = true;
@@ -1344,7 +1371,7 @@
           resizeRaf = requestAnimationFrame(function () {
             resizeRaf = 0;
             resize();
-            frame(simTimeMs);
+            frame(simTimeMs, true);
           });
         }
 
@@ -1352,11 +1379,17 @@
         window.addEventListener(
           "scroll",
           function () {
-            updateScrollNorm();
-            applyLayerTransforms();
+            updateScrollTargetFromWindow();
+            lastScrollInputAt = performance.now();
+            var previewRatio = 1 - smoothstep(H * 0.58, H * 1.08, scrollTargetY);
+            var previewHidden = previewRatio <= 0.02;
+            var previewMilky = smoothstep(H * 1.05, H * 1.95, scrollTargetY);
             if (reducedMotion) {
+              scrollCurrentY = scrollTargetY;
+              updateScrollNorm(scrollCurrentY);
+              applyLayerTransforms();
               frame(simTimeMs);
-            } else if (auroraHidden && milkyVisible <= 0.001) {
+            } else if (previewHidden && previewMilky <= 0.001) {
               if (rafId) {
                 cancelAnimationFrame(rafId);
                 rafId = 0;
@@ -1374,7 +1407,7 @@
           applyQualityProfile(getQualityPreset(adaptiveBaseTier, !!e.matches));
           frozen = !!e.matches;
           resize();
-          frame(simTimeMs);
+          frame(simTimeMs, true);
           if (frozen) {
             if (rafId) {
               cancelAnimationFrame(rafId);

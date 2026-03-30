@@ -76,6 +76,7 @@ export function MilkyWayBackground({
   className,
   style,
   zIndex = 1,
+  active = true,
   quality = "auto",
   reducedMotion: reducedMotionOverride,
   scrollFollow = false,
@@ -120,10 +121,15 @@ export function MilkyWayBackground({
     let starBrightCool: HTMLCanvasElement | null = null;
     let starBrightWarm: HTMLCanvasElement | null = null;
     let nebulaSprites: HTMLCanvasElement[] = [];
+    let bgGradient: CanvasGradient | null = null;
+    let dustGradient: CanvasGradient | null = null;
+    let pxScale = 1;
     let lastDrawAt = -1;
     let lastSimTs = -1;
     let layerOffsetY = 0;
     let hiddenByScroll = false;
+    let pageVisible = !document.hidden;
+    let lastScrollInputAt = 0;
     let rafId = 0;
     let resizeRaf = 0;
     let respawnRnd = mulberry32(0x13579bdf);
@@ -232,13 +238,11 @@ export function MilkyWayBackground({
     };
 
     const clear = () => {
-      const px = dpr * profile.starScale;
-      ctx.setTransform(px, 0, 0, px, 0, 0);
+      ctx.setTransform(pxScale, 0, 0, pxScale, 0, 0);
       ctx.clearRect(0, 0, W, H);
     };
 
     const drawMilky = (t: number) => {
-      const px = dpr * profile.starScale;
       const dtMs = lastSimTs < 0 ? 16.67 : Math.max(8, Math.min(40, t - lastSimTs));
       lastSimTs = t;
       const dt = dtMs / 1000;
@@ -249,15 +253,17 @@ export function MilkyWayBackground({
       const cy = H * 0.5;
       const focal = Math.min(W, H) * 0.72;
 
-      ctx.setTransform(px, 0, 0, px, 0, 0);
+      ctx.setTransform(pxScale, 0, 0, pxScale, 0, 0);
       ctx.clearRect(0, 0, W, H);
 
       ctx.globalCompositeOperation = "source-over";
-      const bg = ctx.createLinearGradient(0, 0, 0, H);
-      bg.addColorStop(0, "rgba(5,8,18,0.2)");
-      bg.addColorStop(0.42, "rgba(8,10,24,0.4)");
-      bg.addColorStop(1, "rgba(2,4,11,0.82)");
-      ctx.fillStyle = bg;
+      if (!bgGradient) {
+        bgGradient = ctx.createLinearGradient(0, 0, 0, H);
+        bgGradient.addColorStop(0, "rgba(5,8,18,0.2)");
+        bgGradient.addColorStop(0.42, "rgba(8,10,24,0.4)");
+        bgGradient.addColorStop(1, "rgba(2,4,11,0.82)");
+      }
+      ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, W, H);
 
       ctx.globalCompositeOperation = "screen";
@@ -284,12 +290,14 @@ export function MilkyWayBackground({
       ctx.save();
       ctx.translate(W * 0.5 + flowX * 0.5, H * 0.48 + flowY * 0.4);
       ctx.rotate(0.19);
-      const dust = ctx.createLinearGradient(0, -H * 0.34, 0, H * 0.34);
-      dust.addColorStop(0, "rgba(10,8,14,0)");
-      dust.addColorStop(0.48, "rgba(8,7,12,0.32)");
-      dust.addColorStop(0.52, "rgba(8,7,12,0.36)");
-      dust.addColorStop(1, "rgba(10,8,14,0)");
-      ctx.fillStyle = dust;
+      if (!dustGradient) {
+        dustGradient = ctx.createLinearGradient(0, -H * 0.34, 0, H * 0.34);
+        dustGradient.addColorStop(0, "rgba(10,8,14,0)");
+        dustGradient.addColorStop(0.48, "rgba(8,7,12,0.32)");
+        dustGradient.addColorStop(0.52, "rgba(8,7,12,0.36)");
+        dustGradient.addColorStop(1, "rgba(10,8,14,0)");
+      }
+      ctx.fillStyle = dustGradient;
       ctx.fillRect(-W, -H * 0.34, W * 2, H * 0.68);
       ctx.restore();
 
@@ -329,11 +337,13 @@ export function MilkyWayBackground({
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       W = window.innerWidth;
       H = window.innerHeight;
-      const px = dpr * profile.starScale;
-      canvas.width = Math.max(1, Math.floor(W * px));
-      canvas.height = Math.max(1, Math.floor(H * px));
+      pxScale = dpr * profile.starScale;
+      canvas.width = Math.max(1, Math.floor(W * pxScale));
+      canvas.height = Math.max(1, Math.floor(H * pxScale));
       canvas.style.width = `${W}px`;
       canvas.style.height = `${H}px`;
+      bgGradient = null;
+      dustGradient = null;
       initSprites();
       initMilky();
       lastDrawAt = -1;
@@ -341,6 +351,7 @@ export function MilkyWayBackground({
     };
 
     const onScroll = () => {
+      lastScrollInputAt = performance.now();
       if (!scrollFollow) return;
       const y = window.scrollY || window.pageYOffset || 0;
       layerOffsetY = -y * scrollFollowFactor;
@@ -349,19 +360,18 @@ export function MilkyWayBackground({
         hiddenByScroll = y >= H;
         if (hiddenByScroll) {
           clear();
-          if (rafId) {
-            cancelAnimationFrame(rafId);
-            rafId = 0;
-          }
-        } else if (!rafId && !reducedMotion) {
-          rafId = requestAnimationFrame(tick);
         }
       }
+      ensureTicking();
     };
 
     const frame = (t: number) => {
+      if (!active) return;
       if (hiddenByScroll) return;
-      const interval = reducedMotion ? 160 : Math.max(16, profile.starFrameIntervalMs * 0.75);
+      const inputRecent = t - lastScrollInputAt < 140;
+      const baseInterval =
+        profile.tier === "high" ? 16 : profile.tier === "medium" ? 20 : 24;
+      const interval = reducedMotion ? 160 : inputRecent ? 16 : baseInterval;
       if (lastDrawAt < 0 || t - lastDrawAt >= interval) {
         drawMilky(t);
         lastDrawAt = t;
@@ -369,15 +379,28 @@ export function MilkyWayBackground({
     };
 
     const tick = (t: number) => {
+      rafId = 0;
+      if (!pageVisible) return;
       frame(t);
-      if (!reducedMotion && !hiddenByScroll) rafId = requestAnimationFrame(tick);
-      else rafId = 0;
+      ensureTicking();
+    };
+
+    const shouldAnimate = () => active && !reducedMotion && pageVisible && !hiddenByScroll;
+
+    const ensureTicking = () => {
+      if (shouldAnimate()) {
+        if (!rafId) rafId = requestAnimationFrame(tick);
+      } else if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
     };
 
     onResize();
     onScroll();
-    frame(0);
-    if (!reducedMotion && !hiddenByScroll) rafId = requestAnimationFrame(tick);
+    if (active) frame(0);
+    else clear();
+    ensureTicking();
 
     const scheduleResize = () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -385,20 +408,35 @@ export function MilkyWayBackground({
         resizeRaf = 0;
         onResize();
         onScroll();
-        frame(performance.now());
+        if (active) frame(performance.now());
       });
+    };
+
+    const onVisibilityChange = () => {
+      pageVisible = !document.hidden;
+      if (!pageVisible) {
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+        return;
+      }
+      if (active) frame(performance.now());
+      ensureTicking();
     };
 
     window.addEventListener("resize", scheduleResize, { passive: true });
     window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       window.removeEventListener("resize", scheduleResize);
       window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [profile, reducedMotion, scrollFollow, scrollFollowFactor, hideWhenScrolledOut]);
+  }, [active, profile, reducedMotion, scrollFollow, scrollFollowFactor, hideWhenScrolledOut]);
 
   return (
     <div
